@@ -43,6 +43,26 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+async function downscaleImage(file: File, maxDim = 1600, quality = 0.82): Promise<string> {
+  const dataUrl = await fileToDataUrl(file);
+  const img = new Image();
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+  const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return dataUrl;
+  ctx.drawImage(img, 0, 0, w, h);
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
 function SnapList() {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [brand, setBrand] = useState("");
@@ -72,7 +92,7 @@ function SnapList() {
     const toAdd = arr.slice(0, room);
     const next: Photo[] = [];
     for (const f of toAdd) {
-      const dataUrl = await fileToDataUrl(f);
+      const dataUrl = await downscaleImage(f);
       next.push({ id: crypto.randomUUID(), dataUrl, label: "" });
     }
     setPhotos((p) => [...p, ...next]);
