@@ -3,7 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { generateListing, type Listing } from "@/lib/listing.functions";
+import { generateListing, guessPhotoLabel, type Listing } from "@/lib/listing.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -74,6 +74,7 @@ function SnapList() {
   const [listing, setListing] = useState<Listing | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const callGenerate = useServerFn(generateListing);
+  const callGuessLabel = useServerFn(guessPhotoLabel);
 
   useEffect(() => {
     if (!loading) return;
@@ -96,7 +97,18 @@ function SnapList() {
       next.push({ id: crypto.randomUUID(), dataUrl, label: "" });
     }
     setPhotos((p) => [...p, ...next]);
-  }, [photos.length]);
+    // Fire-and-forget auto-labeling for each new photo
+    for (const photo of next) {
+      callGuessLabel({ data: { dataUrl: photo.dataUrl } })
+        .then((res) => {
+          if (!res?.label) return;
+          setPhotos((ps) =>
+            ps.map((x) => (x.id === photo.id && !x.label ? { ...x, label: res.label } : x)),
+          );
+        })
+        .catch(() => {});
+    }
+  }, [photos.length, callGuessLabel]);
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -306,8 +318,18 @@ function SnapList() {
               </dl>
             </ResultCard>
 
-            <ResultCard title="✨ Description" onCopy={() => copy(listing.description, "Description")}>
-              <div className="whitespace-pre-wrap leading-relaxed">{listing.description}</div>
+            <ResultCard
+              title="✨ eBay Description"
+              onCopy={() => copy(listing.descriptionEbay, "eBay description")}
+            >
+              <div className="whitespace-pre-wrap leading-relaxed">{listing.descriptionEbay}</div>
+            </ResultCard>
+
+            <ResultCard
+              title="👗 Poshmark Description"
+              onCopy={() => copy(listing.descriptionPoshmark, "Poshmark description")}
+            >
+              <div className="whitespace-pre-wrap leading-relaxed">{listing.descriptionPoshmark}</div>
             </ResultCard>
 
             <ResultCard title="📂 Suggested Category" onCopy={() => copy(listing.category, "Category")}>
