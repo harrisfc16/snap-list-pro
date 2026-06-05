@@ -8,13 +8,13 @@ import { generateListing, guessPhotoLabel, type Listing } from "@/lib/listing.fu
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "SnapList — Photo to eBay listing in seconds" },
-      { name: "description", content: "Snap your clothing or shoes, get a ready-to-paste eBay listing with tags auto-digitized." },
-      { property: "og:title", content: "SnapList" },
-      { property: "og:description", content: "Photo-to-listing assistant for eBay resellers." },
+      { title: "ListFast — AI listings for eBay & Poshmark resellers" },
+      { name: "description", content: "Upload photos, get a full eBay + Poshmark listing: title, specifics, descriptions, keywords, category, price." },
+      { property: "og:title", content: "ListFast" },
+      { property: "og:description", content: "AI listing generator for clothing resellers." },
     ],
   }),
-  component: SnapList,
+  component: ListFast,
 });
 
 type Photo = {
@@ -23,15 +23,16 @@ type Photo = {
   label: string;
 };
 
-const LABELS = ["Front", "Back", "Brand tag", "Size tag", "Care tag", "Detail", "Flaw", "Other"];
+const LABELS = ["Front", "Back", "Detail", "Tag/Label", "Other"];
 const CONDITIONS = ["New with tags", "New without tags", "Excellent", "Good", "Fair"];
 const PROGRESS_MESSAGES = [
+  "Analyzing your item... ✨",
   "Reading your tags... 🏷️",
-  "Decoding care symbols... 🧺",
+  "Pricing the market... 💰",
   "Drafting your title... ✍️",
   "Picking the perfect keywords... 🔑",
-  "Polishing the description... ✨",
-  "Almost there — boxing it up... 📦",
+  "Polishing the descriptions... 📝",
+  "Almost there... 📦",
 ];
 
 function fileToDataUrl(file: File): Promise<string> {
@@ -63,12 +64,13 @@ async function downscaleImage(file: File, maxDim = 1600, quality = 0.82): Promis
   return canvas.toDataURL("image/jpeg", quality);
 }
 
-function SnapList() {
+function ListFast() {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [brand, setBrand] = useState("");
   const [size, setSize] = useState("");
   const [condition, setCondition] = useState("");
   const [notes, setNotes] = useState("");
+  const [skuNumber, setSkuNumber] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [progressIdx, setProgressIdx] = useState(0);
   const [listing, setListing] = useState<Listing | null>(null);
@@ -120,6 +122,11 @@ function SnapList() {
       toast.error("Add at least one photo first 📸");
       return;
     }
+    const skuN = parseInt(skuNumber, 10);
+    if (!Number.isFinite(skuN) || skuN < 0) {
+      toast.error("Enter a SKU number (e.g. 57)");
+      return;
+    }
     setLoading(true);
     setListing(null);
     try {
@@ -130,6 +137,7 @@ function SnapList() {
           size: size || undefined,
           condition: condition || undefined,
           notes: notes || undefined,
+          skuNumber: skuN,
         },
       });
       setListing(result as Listing);
@@ -147,6 +155,47 @@ function SnapList() {
     toast.success(`${what} copied! 📋`);
   };
 
+  const sku = listing ? buildSku(listing.categoryCode, parseInt(skuNumber, 10) || 0) : "";
+
+  const copyAll = () => {
+    if (!listing) return;
+    const specifics = Object.entries(listing.itemSpecifics)
+      .filter(([, v]) => v)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join("\n");
+    const text = [
+      `SKU: ${sku}`,
+      ``,
+      `TITLE (${listing.title.length}/80):`,
+      listing.title,
+      ``,
+      `ITEM SPECIFICS:`,
+      specifics,
+      ``,
+      `EBAY DESCRIPTION:`,
+      listing.descriptionEbay,
+      ``,
+      `CONDITION DESCRIPTION (${listing.conditionDescription.length}/200):`,
+      listing.conditionDescription,
+      ``,
+      `POSHMARK DESCRIPTION:`,
+      listing.descriptionPoshmark,
+      ``,
+      `KEYWORDS:`,
+      listing.keywords.join(", "),
+      ``,
+      `EBAY CATEGORY: ${listing.categoryEbay}`,
+      `POSHMARK CATEGORY: ${listing.categoryPoshmark}`,
+      ``,
+      `PRICES:`,
+      `eBay BIN: $${listing.priceEbayLow}–$${listing.priceEbayHigh}`,
+      `Poshmark: $${listing.pricePoshmark}`,
+      `Floor: $${listing.priceFloor}`,
+      listing.priceNote,
+    ].join("\n");
+    copy(text, "Everything");
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <header
@@ -154,10 +203,10 @@ function SnapList() {
         style={{ background: "var(--gradient-hero)" }}
       >
         <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight drop-shadow-sm">
-          SnapList <span className="inline-block animate-bounce">📸</span>
+          ListFast <span className="inline-block animate-bounce">⚡</span>
         </h1>
         <p className="mt-3 text-lg sm:text-xl font-medium opacity-95">
-          Snap it. List it. Sell it. — Let's flip this!
+          Photos in. Full eBay + Poshmark listing out.
         </p>
       </header>
 
@@ -227,7 +276,7 @@ function SnapList() {
 
         {/* Fields */}
         <section className="bg-card rounded-3xl p-6 shadow-[var(--shadow-soft)] border border-border">
-          <h2 className="text-xl font-bold mb-4">🧾 Quick details (optional)</h2>
+          <h2 className="text-xl font-bold mb-4">🧾 Quick details</h2>
           <div className="grid sm:grid-cols-2 gap-4">
             <Field label="Brand" placeholder="AI will read the tag if blank">
               <input
@@ -261,6 +310,16 @@ function SnapList() {
                 placeholder="Flaws, measurements, fit…"
               />
             </Field>
+            <Field label="SKU number *">
+              <input
+                type="number"
+                min={0}
+                value={skuNumber}
+                onChange={(e) => setSkuNumber(e.target.value)}
+                className="input"
+                placeholder="e.g. 57 — we build the full SKU"
+              />
+            </Field>
           </div>
         </section>
 
@@ -289,9 +348,25 @@ function SnapList() {
         {/* Results */}
         {listing && (
           <div className="space-y-5 pt-2">
+            <div className="flex justify-end">
+              <button
+                onClick={copyAll}
+                className="px-4 py-2 rounded-full text-sm font-bold text-white shadow-[var(--shadow-soft)]"
+                style={{ background: "var(--gradient-cta)" }}
+              >
+                📋 Copy All
+              </button>
+            </div>
+
+            <ResultCard title="🔖 SKU" onCopy={() => copy(sku, "SKU")}>
+              <p className="text-lg font-mono font-semibold">{sku}</p>
+            </ResultCard>
+
             <ResultCard title="📝 eBay Title" onCopy={() => copy(listing.title, "Title")}>
               <p className="text-lg font-semibold">{listing.title}</p>
-              <p className="text-xs text-muted-foreground mt-1">{listing.title.length} / 80 characters</p>
+              <p className={`text-xs mt-1 ${listing.title.length > 80 ? "text-destructive" : "text-muted-foreground"}`}>
+                {listing.title.length} / 80 characters
+              </p>
             </ResultCard>
 
             <ResultCard
@@ -326,14 +401,20 @@ function SnapList() {
             </ResultCard>
 
             <ResultCard
+              title="🔍 eBay Condition Description"
+              onCopy={() => copy(listing.conditionDescription, "Condition description")}
+            >
+              <div className="whitespace-pre-wrap leading-relaxed">{listing.conditionDescription}</div>
+              <p className={`text-xs mt-2 ${listing.conditionDescription.length > 200 ? "text-destructive" : "text-muted-foreground"}`}>
+                {listing.conditionDescription.length} / 200 characters
+              </p>
+            </ResultCard>
+
+            <ResultCard
               title="👗 Poshmark Description"
               onCopy={() => copy(listing.descriptionPoshmark, "Poshmark description")}
             >
               <div className="whitespace-pre-wrap leading-relaxed">{listing.descriptionPoshmark}</div>
-            </ResultCard>
-
-            <ResultCard title="📂 Suggested Category" onCopy={() => copy(listing.category, "Category")}>
-              <p>{listing.category}</p>
             </ResultCard>
 
             <ResultCard
@@ -352,11 +433,44 @@ function SnapList() {
                 ))}
               </div>
             </ResultCard>
+
+            <ResultCard
+              title="📂 Suggested Categories"
+              onCopy={() => copy(`eBay: ${listing.categoryEbay}\nPoshmark: ${listing.categoryPoshmark}`, "Categories")}
+            >
+              <div className="space-y-2">
+                <div>
+                  <span className="font-semibold text-sm">eBay: </span>
+                  <span className="text-muted-foreground">{listing.categoryEbay}</span>
+                </div>
+                <div>
+                  <span className="font-semibold text-sm">Poshmark: </span>
+                  <span className="text-muted-foreground">{listing.categoryPoshmark}</span>
+                </div>
+              </div>
+            </ResultCard>
+
+            <ResultCard
+              title="💰 Price Suggestion"
+              onCopy={() =>
+                copy(
+                  `eBay BIN: $${listing.priceEbayLow}–$${listing.priceEbayHigh}\nPoshmark: $${listing.pricePoshmark}\nFloor: $${listing.priceFloor}\n${listing.priceNote}`,
+                  "Prices",
+                )
+              }
+            >
+              <div className="grid sm:grid-cols-3 gap-3 mb-3">
+                <PriceTile label="eBay BIN" value={`$${listing.priceEbayLow}–$${listing.priceEbayHigh}`} />
+                <PriceTile label="Poshmark" value={`$${listing.pricePoshmark}`} />
+                <PriceTile label="Floor" value={`$${listing.priceFloor}`} />
+              </div>
+              <p className="text-sm text-muted-foreground">{listing.priceNote}</p>
+            </ResultCard>
           </div>
         )}
 
         <footer className="text-center text-xs text-muted-foreground py-6">
-          Made with ❤️ for resellers. SnapList isn't affiliated with eBay.
+          Made with ❤️ for resellers. ListFast isn't affiliated with eBay or Poshmark.
         </footer>
       </main>
 
@@ -372,6 +486,23 @@ function SnapList() {
         }
         .input:focus { outline: 2px solid var(--purple); outline-offset: 1px; }
       `}</style>
+    </div>
+  );
+}
+
+function buildSku(categoryCode: string, num: number): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}${m}${day}-${categoryCode}-${String(num).padStart(3, "0")}`;
+}
+
+function PriceTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-border bg-secondary/40 p-3 text-center">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">{label}</div>
+      <div className="text-lg font-extrabold">{value}</div>
     </div>
   );
 }
