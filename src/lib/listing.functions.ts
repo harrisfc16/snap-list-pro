@@ -144,3 +144,47 @@ export const guessPhotoLabel = createServerFn({ method: "POST" })
       return { label: "" };
     }
   });
+
+// Auto-detect item details from all uploaded photos
+const DetailsSchema = z.object({
+  brand: z.string().optional(),
+  size: z.string().optional(),
+  color: z.string().optional(),
+  condition: z.enum(["New with tags", "New without tags", "Excellent", "Good", "Fair", ""]).optional(),
+});
+
+export const guessItemDetails = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ photos: z.array(z.string().min(20)).min(1).max(8) }).parse(input),
+  )
+  .handler(async ({ data }) => {
+    const key = process.env.LOVABLE_API_KEY;
+    if (!key) throw new Error("Missing LOVABLE_API_KEY");
+
+    const gateway = createLovableAiGatewayProvider(key);
+    const model = gateway("google/gemini-2.5-flash");
+
+    try {
+      const result = await generateText({
+        model,
+        output: Output.object({ schema: DetailsSchema }),
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text:
+                  "Look at these resale photos and extract: brand (from any tag or visible branding), size (from size tag), color (dominant color of the item, plain English like 'cream' or 'navy blue'), and condition (one of: New with tags, New without tags, Excellent, Good, Fair). If you cannot confidently determine any field, OMIT it or leave empty — do not guess. Return only what you can clearly see.",
+              },
+              ...data.photos.map((url) => ({ type: "image" as const, image: url })),
+            ],
+          },
+        ],
+      });
+      return result.output;
+    } catch (err) {
+      console.error("guessItemDetails failed", err);
+      return {};
+    }
+  });

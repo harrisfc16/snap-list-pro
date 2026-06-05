@@ -3,7 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { generateListing, guessPhotoLabel, type Listing } from "@/lib/listing.functions";
+import { generateListing, guessPhotoLabel, guessItemDetails, type Listing } from "@/lib/listing.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -71,12 +71,16 @@ function ListFast() {
   const [condition, setCondition] = useState("");
   const [notes, setNotes] = useState("");
   const [skuNumber, setSkuNumber] = useState<string>("");
+  const [color, setColor] = useState("");
+  const [aiFields, setAiFields] = useState<{ brand?: boolean; size?: boolean; color?: boolean; condition?: boolean }>({});
+  const [detecting, setDetecting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [progressIdx, setProgressIdx] = useState(0);
   const [listing, setListing] = useState<Listing | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const callGenerate = useServerFn(generateListing);
   const callGuessLabel = useServerFn(guessPhotoLabel);
+  const callGuessDetails = useServerFn(guessItemDetails);
 
   useEffect(() => {
     if (!loading) return;
@@ -110,7 +114,22 @@ function ListFast() {
         })
         .catch(() => {});
     }
-  }, [photos.length, callGuessLabel]);
+    // Auto-detect item details across all photos so far
+    const allUrls = [...photos.map((p) => p.dataUrl), ...next.map((p) => p.dataUrl)];
+    setDetecting(true);
+    callGuessDetails({ data: { photos: allUrls } })
+      .then((res) => {
+        if (!res) return;
+        const flags: typeof aiFields = {};
+        if (res.brand && !brand) { setBrand(res.brand); flags.brand = true; }
+        if (res.size && !size) { setSize(res.size); flags.size = true; }
+        if (res.color && !color) { setColor(res.color); flags.color = true; }
+        if (res.condition && !condition) { setCondition(res.condition); flags.condition = true; }
+        setAiFields((f) => ({ ...f, ...flags }));
+      })
+      .catch(() => {})
+      .finally(() => setDetecting(false));
+  }, [photos, callGuessLabel, callGuessDetails, brand, size, color, condition, aiFields]);
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -136,7 +155,7 @@ function ListFast() {
           brand: brand || undefined,
           size: size || undefined,
           condition: condition || undefined,
-          notes: notes || undefined,
+          notes: [color ? `Color: ${color}` : "", notes].filter(Boolean).join(". ") || undefined,
           skuNumber: skuN,
         },
       });
@@ -197,37 +216,34 @@ function ListFast() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <header
-        className="px-6 py-10 sm:py-14 text-center text-white"
-        style={{ background: "var(--gradient-hero)" }}
-      >
-        <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight drop-shadow-sm">
-          ListFast <span className="inline-block animate-bounce">⚡</span>
+    <div className="min-h-screen bg-background text-foreground">
+      <header className="px-6 pt-16 pb-10 text-center">
+        <h1 className="font-serif text-5xl sm:text-6xl font-light tracking-wide text-foreground">
+          ListFast
         </h1>
-        <p className="mt-3 text-lg sm:text-xl font-medium opacity-95">
-          Photos in. Full eBay + Poshmark listing out.
+        <p className="mt-3 text-sm uppercase tracking-[0.25em] text-muted-foreground font-light">
+          The reseller's editorial assistant
         </p>
+        <div className="mx-auto mt-6 h-px w-16 bg-border" />
       </header>
 
-      <main className="mx-auto max-w-3xl px-4 sm:px-6 py-8 space-y-6">
+      <main className="mx-auto max-w-3xl px-5 sm:px-8 pb-16 space-y-8">
         {/* Photo upload */}
-        <section className="bg-card rounded-3xl p-6 shadow-[var(--shadow-soft)] border border-border">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xl font-bold">📸 Photos</h2>
-            <span className="text-sm font-semibold text-muted-foreground">{photos.length} / 8</span>
+        <section className="bg-card rounded-2xl p-8 border border-border">
+          <div className="flex items-baseline justify-between mb-5">
+            <h2 className="font-serif text-2xl font-light tracking-wide">Photographs</h2>
+            <span className="text-xs uppercase tracking-widest text-muted-foreground">{photos.length} / 8</span>
           </div>
 
           <div
             onDrop={onDrop}
             onDragOver={(e) => e.preventDefault()}
             onClick={() => fileRef.current?.click()}
-            className="cursor-pointer rounded-2xl border-2 border-dashed border-pink/60 bg-secondary/40 hover:bg-secondary transition p-8 text-center"
+            className="cursor-pointer rounded-xl border border-dashed border-border bg-background/40 hover:bg-background/70 transition p-10 text-center"
           >
-            <p className="text-2xl">📷✨</p>
-            <p className="mt-2 font-semibold">Drop photos here or click to upload</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              📸 Tip: Include the brand tag, size tag, and care label for best results
+            <p className="font-serif text-xl font-light tracking-wide">Drop photographs here</p>
+            <p className="mt-2 text-sm text-muted-foreground font-light">
+              or click to browse — include brand, size, and care tags for best results
             </p>
             <input
               ref={fileRef}
@@ -240,18 +256,18 @@ function ListFast() {
           </div>
 
           {photos.length > 0 && (
-            <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-4">
               {photos.map((p) => (
                 <div key={p.id} className="relative group">
                   <img
                     src={p.dataUrl}
                     alt="upload"
-                    className="w-full aspect-square object-cover rounded-xl border border-border"
+                    className="w-full aspect-square object-cover rounded-lg border border-border"
                   />
                   <button
                     type="button"
                     onClick={() => setPhotos((ps) => ps.filter((x) => x.id !== p.id))}
-                    className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-destructive text-destructive-foreground font-bold shadow-md hover:scale-110 transition"
+                    className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-foreground/80 text-background text-xs hover:bg-foreground transition"
                     aria-label="Remove photo"
                   >
                     ×
@@ -261,7 +277,7 @@ function ListFast() {
                     onChange={(e) =>
                       setPhotos((ps) => ps.map((x) => (x.id === p.id ? { ...x, label: e.target.value } : x)))
                     }
-                    className="mt-1 w-full text-xs rounded-lg border border-border bg-card px-2 py-1"
+                    className="mt-2 w-full text-xs rounded-md border border-border bg-card text-foreground px-2 py-1.5 font-light tracking-wide"
                   >
                     <option value="">Label…</option>
                     {LABELS.map((l) => (
@@ -275,27 +291,46 @@ function ListFast() {
         </section>
 
         {/* Fields */}
-        <section className="bg-card rounded-3xl p-6 shadow-[var(--shadow-soft)] border border-border">
-          <h2 className="text-xl font-bold mb-4">🧾 Quick details</h2>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <Field label="Brand" placeholder="AI will read the tag if blank">
+        <section className="bg-card rounded-2xl p-8 border border-border">
+          <div className="flex items-baseline justify-between mb-5">
+            <h2 className="font-serif text-2xl font-light tracking-wide">Details</h2>
+            {detecting && (
+              <span className="text-xs uppercase tracking-widest text-muted-foreground font-light">
+                analyzing…
+              </span>
+            )}
+          </div>
+          <div className="grid sm:grid-cols-2 gap-5">
+            <Field label="Brand" aiNote={aiFields.brand}>
               <input
                 value={brand}
-                onChange={(e) => setBrand(e.target.value)}
+                onChange={(e) => { setBrand(e.target.value); setAiFields((f) => ({ ...f, brand: false })); }}
                 className="input"
-                placeholder="e.g. Nike"
+                placeholder="e.g. Acne Studios"
               />
             </Field>
-            <Field label="Size" placeholder="AI will read the tag if blank">
+            <Field label="Size" aiNote={aiFields.size}>
               <input
                 value={size}
-                onChange={(e) => setSize(e.target.value)}
+                onChange={(e) => { setSize(e.target.value); setAiFields((f) => ({ ...f, size: false })); }}
                 className="input"
                 placeholder="e.g. M / 10 US"
               />
             </Field>
-            <Field label="Condition">
-              <select value={condition} onChange={(e) => setCondition(e.target.value)} className="input">
+            <Field label="Color" aiNote={aiFields.color}>
+              <input
+                value={color}
+                onChange={(e) => { setColor(e.target.value); setAiFields((f) => ({ ...f, color: false })); }}
+                className="input"
+                placeholder="e.g. cream, navy"
+              />
+            </Field>
+            <Field label="Condition" aiNote={aiFields.condition}>
+              <select
+                value={condition}
+                onChange={(e) => { setCondition(e.target.value); setAiFields((f) => ({ ...f, condition: false })); }}
+                className="input"
+              >
                 <option value="">Select…</option>
                 {CONDITIONS.map((c) => (
                   <option key={c} value={c}>{c}</option>
@@ -307,17 +342,17 @@ function ListFast() {
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 className="input"
-                placeholder="Flaws, measurements, fit…"
+                placeholder="Flaws, measurements, fit"
               />
             </Field>
-            <Field label="SKU number *">
+            <Field label="SKU number">
               <input
                 type="number"
                 min={0}
                 value={skuNumber}
                 onChange={(e) => setSkuNumber(e.target.value)}
                 className="input"
-                placeholder="e.g. 57 — we build the full SKU"
+                placeholder="e.g. 57"
               />
             </Field>
           </div>
@@ -327,50 +362,46 @@ function ListFast() {
         <button
           onClick={generate}
           disabled={loading}
-          className="w-full py-5 rounded-3xl text-white text-xl font-extrabold shadow-[var(--shadow-soft)] hover:scale-[1.01] active:scale-[0.99] transition disabled:opacity-70 disabled:cursor-not-allowed"
-          style={{ background: "var(--gradient-cta)" }}
+          className="w-full py-5 rounded-full bg-primary text-primary-foreground text-sm uppercase tracking-[0.25em] font-light hover:opacity-90 active:scale-[0.99] transition disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {loading ? (
-            <span className="inline-flex items-center gap-3">
-              <span className="inline-block animate-spin">✨</span>
-              {PROGRESS_MESSAGES[progressIdx]}
-            </span>
+            <span>{PROGRESS_MESSAGES[progressIdx]}</span>
           ) : (
-            <>Generate Listing ✨</>
+            <>Generate Listing</>
           )}
         </button>
         {loading && (
-          <p className="text-center text-sm text-muted-foreground -mt-2">
-            This can take 15–25 seconds with multiple photos — hang tight!
+          <p className="text-center text-xs text-muted-foreground font-light tracking-wide -mt-4">
+            This can take 15–25 seconds — please hold on.
           </p>
         )}
 
         {/* Results */}
         {listing && (
-          <div className="space-y-5 pt-2">
+          <div className="space-y-6 pt-2">
             <div className="flex justify-end">
               <button
                 onClick={copyAll}
-                className="px-4 py-2 rounded-full text-sm font-bold text-white shadow-[var(--shadow-soft)]"
-                style={{ background: "var(--gradient-cta)" }}
+                className="px-5 py-2 rounded-full bg-primary text-primary-foreground text-xs uppercase tracking-[0.2em] font-light hover:opacity-90 transition"
               >
-                📋 Copy All
+                Copy All
               </button>
             </div>
 
-            <ResultCard title="🔖 SKU" onCopy={() => copy(sku, "SKU")}>
-              <p className="text-lg font-mono font-semibold">{sku}</p>
+            <ResultCard title="SKU" accent="sage" onCopy={() => copy(sku, "SKU")}>
+              <p className="text-lg font-mono tracking-wide">{sku}</p>
             </ResultCard>
 
-            <ResultCard title="📝 eBay Title" onCopy={() => copy(listing.title, "Title")}>
-              <p className="text-lg font-semibold">{listing.title}</p>
-              <p className={`text-xs mt-1 ${listing.title.length > 80 ? "text-destructive" : "text-muted-foreground"}`}>
+            <ResultCard title="eBay Title" accent="peach" onCopy={() => copy(listing.title, "Title")}>
+              <p className="text-base">{listing.title}</p>
+              <p className={`text-xs mt-2 tracking-wide ${listing.title.length > 80 ? "text-destructive" : "text-muted-foreground"}`}>
                 {listing.title.length} / 80 characters
               </p>
             </ResultCard>
 
             <ResultCard
-              title="🏷️ Item Specifics"
+              title="Item Specifics"
+              accent="lavender"
               onCopy={() =>
                 copy(
                   Object.entries(listing.itemSpecifics)
@@ -381,52 +412,55 @@ function ListFast() {
                 )
               }
             >
-              <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-2">
+              <dl className="grid sm:grid-cols-2 gap-x-8 gap-y-2">
                 {Object.entries(listing.itemSpecifics)
                   .filter(([, v]) => v)
                   .map(([k, v]) => (
-                    <div key={k} className="flex justify-between gap-3 border-b border-border/60 py-1">
-                      <dt className="font-semibold">{k.replace(/([A-Z])/g, " $1").trim()}</dt>
-                      <dd className="text-right text-muted-foreground">{v as string}</dd>
+                    <div key={k} className="flex justify-between gap-3 border-b border-border py-2">
+                      <dt className="text-sm font-light uppercase tracking-wider text-muted-foreground">{k.replace(/([A-Z])/g, " $1").trim()}</dt>
+                      <dd className="text-sm text-right text-foreground">{v as string}</dd>
                     </div>
                   ))}
               </dl>
             </ResultCard>
 
             <ResultCard
-              title="✨ eBay Description"
+              title="eBay Description"
+              accent="sage"
               onCopy={() => copy(listing.descriptionEbay, "eBay description")}
             >
-              <div className="whitespace-pre-wrap leading-relaxed">{listing.descriptionEbay}</div>
+              <div className="whitespace-pre-wrap leading-relaxed text-sm font-light">{listing.descriptionEbay}</div>
             </ResultCard>
 
             <ResultCard
-              title="🔍 eBay Condition Description"
+              title="Condition Description"
+              accent="peach"
               onCopy={() => copy(listing.conditionDescription, "Condition description")}
             >
-              <div className="whitespace-pre-wrap leading-relaxed">{listing.conditionDescription}</div>
-              <p className={`text-xs mt-2 ${listing.conditionDescription.length > 200 ? "text-destructive" : "text-muted-foreground"}`}>
+              <div className="whitespace-pre-wrap leading-relaxed text-sm font-light">{listing.conditionDescription}</div>
+              <p className={`text-xs mt-2 tracking-wide ${listing.conditionDescription.length > 200 ? "text-destructive" : "text-muted-foreground"}`}>
                 {listing.conditionDescription.length} / 200 characters
               </p>
             </ResultCard>
 
             <ResultCard
-              title="👗 Poshmark Description"
+              title="Poshmark Description"
+              accent="lavender"
               onCopy={() => copy(listing.descriptionPoshmark, "Poshmark description")}
             >
-              <div className="whitespace-pre-wrap leading-relaxed">{listing.descriptionPoshmark}</div>
+              <div className="whitespace-pre-wrap leading-relaxed text-sm font-light">{listing.descriptionPoshmark}</div>
             </ResultCard>
 
             <ResultCard
-              title="🔑 Keywords"
+              title="Keywords"
+              accent="sage"
               onCopy={() => copy(listing.keywords.join(", "), "Keywords")}
             >
               <div className="flex flex-wrap gap-2">
                 {listing.keywords.map((k) => (
                   <span
                     key={k}
-                    className="px-3 py-1 rounded-full text-sm font-medium"
-                    style={{ background: "color-mix(in oklab, var(--mint) 50%, white)" }}
+                    className="px-3 py-1 rounded-full text-xs font-light tracking-wide border border-border bg-background"
                   >
                     {k}
                   </span>
@@ -435,23 +469,25 @@ function ListFast() {
             </ResultCard>
 
             <ResultCard
-              title="📂 Suggested Categories"
+              title="Suggested Categories"
+              accent="peach"
               onCopy={() => copy(`eBay: ${listing.categoryEbay}\nPoshmark: ${listing.categoryPoshmark}`, "Categories")}
             >
-              <div className="space-y-2">
+              <div className="space-y-2 text-sm font-light">
                 <div>
-                  <span className="font-semibold text-sm">eBay: </span>
-                  <span className="text-muted-foreground">{listing.categoryEbay}</span>
+                  <span className="uppercase tracking-wider text-xs text-muted-foreground">eBay — </span>
+                  <span>{listing.categoryEbay}</span>
                 </div>
                 <div>
-                  <span className="font-semibold text-sm">Poshmark: </span>
-                  <span className="text-muted-foreground">{listing.categoryPoshmark}</span>
+                  <span className="uppercase tracking-wider text-xs text-muted-foreground">Poshmark — </span>
+                  <span>{listing.categoryPoshmark}</span>
                 </div>
               </div>
             </ResultCard>
 
             <ResultCard
-              title="💰 Price Suggestion"
+              title="Price Suggestion"
+              accent="lavender"
               onCopy={() =>
                 copy(
                   `eBay BIN: $${listing.priceEbayLow}–$${listing.priceEbayHigh}\nPoshmark: $${listing.pricePoshmark}\nFloor: $${listing.priceFloor}\n${listing.priceNote}`,
@@ -459,32 +495,36 @@ function ListFast() {
                 )
               }
             >
-              <div className="grid sm:grid-cols-3 gap-3 mb-3">
+              <div className="grid sm:grid-cols-3 gap-3 mb-4">
                 <PriceTile label="eBay BIN" value={`$${listing.priceEbayLow}–$${listing.priceEbayHigh}`} />
                 <PriceTile label="Poshmark" value={`$${listing.pricePoshmark}`} />
                 <PriceTile label="Floor" value={`$${listing.priceFloor}`} />
               </div>
-              <p className="text-sm text-muted-foreground">{listing.priceNote}</p>
+              <p className="text-sm text-muted-foreground font-light leading-relaxed">{listing.priceNote}</p>
             </ResultCard>
           </div>
         )}
 
-        <footer className="text-center text-xs text-muted-foreground py-6">
-          Made with ❤️ for resellers. ListFast isn't affiliated with eBay or Poshmark.
+        <footer className="text-center text-xs text-muted-foreground py-10 font-light tracking-widest uppercase">
+          ListFast · For Resellers · Not affiliated with eBay or Poshmark
         </footer>
       </main>
 
       <style>{`
         .input {
           width: 100%;
-          padding: 0.625rem 0.875rem;
-          border-radius: 0.75rem;
+          padding: 0.75rem 1rem;
+          border-radius: 0.5rem;
           border: 1px solid var(--border);
-          background: var(--card);
+          background: var(--input);
           color: var(--foreground);
-          font-size: 0.95rem;
+          font-size: 0.9rem;
+          font-weight: 300;
+          letter-spacing: 0.01em;
+          transition: border-color 0.15s;
         }
-        .input:focus { outline: 2px solid var(--purple); outline-offset: 1px; }
+        .input:focus { outline: none; border-color: var(--primary); }
+        .input::placeholder { color: var(--muted-foreground); font-weight: 300; }
       `}</style>
     </div>
   );
@@ -500,17 +540,22 @@ function buildSku(categoryCode: string, num: number): string {
 
 function PriceTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-border bg-secondary/40 p-3 text-center">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">{label}</div>
-      <div className="text-lg font-extrabold">{value}</div>
+    <div className="rounded-lg border border-border bg-background/50 p-4 text-center">
+      <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-light">{label}</div>
+      <div className="mt-1 font-serif text-xl font-light">{value}</div>
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; placeholder?: string; children: React.ReactNode }) {
+function Field({ label, children, aiNote }: { label: string; children: React.ReactNode; aiNote?: boolean }) {
   return (
     <label className="block">
-      <span className="block text-sm font-semibold mb-1">{label}</span>
+      <span className="flex items-baseline justify-between mb-2">
+        <span className="text-xs uppercase tracking-[0.18em] text-muted-foreground font-light">{label}</span>
+        {aiNote && (
+          <span className="text-[10px] italic text-muted-foreground font-light tracking-wide">AI suggested</span>
+        )}
+      </span>
       {children}
     </label>
   );
@@ -520,20 +565,27 @@ function ResultCard({
   title,
   onCopy,
   children,
+  accent = "sage",
 }: {
   title: string;
   onCopy: () => void;
   children: React.ReactNode;
+  accent?: "sage" | "peach" | "lavender";
 }) {
+  const accentColor =
+    accent === "peach" ? "var(--peach)" : accent === "lavender" ? "var(--lavender)" : "var(--sage)";
   return (
-    <section className="bg-card rounded-3xl p-6 shadow-[var(--shadow-soft)] border border-border">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-lg font-bold">{title}</h3>
+    <section
+      className="bg-card rounded-2xl p-7 border border-border"
+      style={{ borderLeft: `3px solid ${accentColor}` }}
+    >
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-serif text-xl font-light tracking-wide">{title}</h3>
         <button
           onClick={onCopy}
-          className="px-3 py-1.5 rounded-full text-sm font-semibold bg-secondary hover:bg-yellow transition"
+          className="text-xs uppercase tracking-[0.18em] text-muted-foreground hover:text-foreground transition font-light"
         >
-          📋 Copy
+          Copy
         </button>
       </div>
       {children}
