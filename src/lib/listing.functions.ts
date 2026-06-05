@@ -15,26 +15,33 @@ const InputSchema = z.object({
   size: z.string().optional(),
   condition: z.string().optional(),
   notes: z.string().optional(),
+  skuNumber: z.number().int().min(0).max(99999).optional(),
 });
 
 const ListingSchema = z.object({
+  categoryCode: z.enum(["TOP", "BTM", "DRESS", "SHOE", "BAG", "ACC", "OUTER", "DENIM"]),
   title: z.string().describe("eBay title, max 80 characters"),
   itemSpecifics: z.object({
     Brand: z.string().optional(),
     Department: z.string().optional(),
     Size: z.string().optional(),
-    SizeType: z.string().optional(),
     Color: z.string().optional(),
     Style: z.string().optional(),
     Material: z.string().optional(),
-    CountryOfOrigin: z.string().optional(),
     Type: z.string().optional(),
-    CareInstructions: z.string().optional(),
+    Era: z.string().optional(),
   }),
   descriptionEbay: z.string().describe("eBay description, 3-5 short paragraphs"),
+  conditionDescription: z.string().describe("eBay condition description, max 200 chars, factual"),
   descriptionPoshmark: z.string().describe("Poshmark description, friendlier tone, 2-4 short paragraphs"),
-  category: z.string(),
+  categoryEbay: z.string().describe("Full eBay category path"),
+  categoryPoshmark: z.string().describe("Full Poshmark category path"),
   keywords: z.array(z.string()).min(4).max(15),
+  priceEbayLow: z.number(),
+  priceEbayHigh: z.number(),
+  pricePoshmark: z.number(),
+  priceFloor: z.number(),
+  priceNote: z.string(),
 });
 
 export const generateListing = createServerFn({ method: "POST" })
@@ -47,15 +54,12 @@ export const generateListing = createServerFn({ method: "POST" })
     const model = gateway("google/gemini-2.5-flash");
 
     const userText = [
-      "Generate listings for this clothing or shoe item from the photos and details below.",
+      "Generate a complete reseller listing for this clothing/shoe/accessory item from the photos and details below.",
       "",
       "Reading instructions:",
-      "- Read brand name from any brand/neck tag photo.",
-      "- Read size from the size tag photo and note if US/EU/UK.",
-      "- Transcribe FULL material composition from the care tag (e.g. '95% Cotton, 5% Elastane').",
-      "- Transcribe FULL care instructions from the care tag in plain English (wash temp, dry method, iron, bleach, dry clean).",
-      "- Read country of origin if visible ('Made in...').",
+      "- Read brand, size, material from any tag/label photos.",
       "- If a tag value is unreadable, OMIT that itemSpecifics field entirely and DO NOT mention it in either description. Never write 'Not visible', 'Unknown', '[placeholder]', or similar.",
+      "- Analyze the photos VISUALLY — colors, style, fit, era, condition. Don't rely only on text inputs.",
       "",
       "User-provided fields (use as ground truth if present):",
       `Brand: ${data.brand || "(let AI read tag)"}`,
@@ -67,12 +71,16 @@ export const generateListing = createServerFn({ method: "POST" })
       ...data.photos.map((p, i) => `Photo ${i + 1}: ${p.label || "unlabeled"}`),
       "",
       "Requirements:",
-      "- title: max 80 chars, keyword-optimized (brand, item type, size, color, key features).",
+      "- categoryCode: pick ONE — TOP, BTM, DRESS, SHOE, BAG, ACC, OUTER, DENIM.",
+      "- title: 75-80 chars, NEVER exceed 80. Format: Brand + Item Type + Size + Color + Key Descriptors. No punctuation, symbols, or filler words.",
       "- itemSpecifics: fill ONLY the fields you can actually determine; omit any you can't.",
-      "- descriptionEbay: 3-5 short paragraphs — opening hook, item details, material composition (only if known), care instructions in plain English (only if known), condition notes. DO NOT include any shipping or returns sentence. After the final paragraph, add a blank line then 'Keywords: ' followed by the keywords comma-separated.",
-      "- descriptionPoshmark: 2-4 short paragraphs, friendlier and more casual tone. Same omission rules for unknown material/care. After the final paragraph, add a blank line then the keywords as hashtags (e.g. '#nike #athleisure #size8'), lowercase, no spaces within each tag.",
-      "- category: full eBay category path.",
-      "- keywords: 8-12 search terms.",
+      "- descriptionEbay: structured & factual. 1-2 sentence hook, then bullet points for material, fit, condition, design features, then a closing styling note. Keyword-dense, no casual language. After the final line, add a blank line then 'Keywords: ' followed by the keywords comma-separated. DO NOT mention shipping or returns.",
+      "- conditionDescription: MAX 200 characters. Honest, factual; note whether any wear/distressing is intentional or actual.",
+      "- descriptionPoshmark: casual, social, conversational. Energetic hook, then brand/size/material/condition/styling ideas, then a call to action. Last line: 8-12 hashtags lowercase no-spaces.",
+      "- categoryEbay: full eBay category path (e.g. 'Women's Clothing > Tops > T-Shirts').",
+      "- categoryPoshmark: full Poshmark category path.",
+      "- keywords: 10-14 search terms. Mix factual (brand, type, size, color) with trending aesthetic tags ONLY if they genuinely match: normcore, scandi girl, Y2K, quiet luxury, cottagecore, dark academia, indie sleaze, coastal grandmother, balletcore, gorpcore, old money, vintage, grunge, streetwear.",
+      "- prices (USD whole numbers): priceEbayLow/priceEbayHigh = realistic Buy-It-Now range based on brand, condition, current resale market. pricePoshmark = single list price (typically slightly above eBay high to allow for offers). priceFloor = absolute don't-go-below. priceNote: 1-2 sentences on what's driving the price.",
     ].join("\n");
 
     const result = await generateText({
@@ -98,7 +106,7 @@ export const generateListing = createServerFn({ method: "POST" })
 export type Listing = z.infer<typeof ListingSchema>;
 
 // Quick auto-label guess for a single uploaded photo
-const PhotoLabels = ["Front", "Back", "Brand tag", "Size tag", "Care tag", "Detail", "Flaw", "Other"] as const;
+const PhotoLabels = ["Front", "Back", "Detail", "Tag/Label", "Other"] as const;
 
 export const guessPhotoLabel = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ dataUrl: z.string().min(20) }).parse(input))
@@ -122,7 +130,7 @@ export const guessPhotoLabel = createServerFn({ method: "POST" })
               {
                 type: "text",
                 text:
-                  "Classify this resale photo into ONE of: Front (full front of garment/shoe), Back, Brand tag (neck/brand label), Size tag, Care tag (washing/material label), Detail (close-up of feature), Flaw (damage/wear), Other. Return only the label.",
+                  "Classify this resale photo into ONE of: Front (full front), Back (full back), Detail (close-up of feature or flaw), Tag/Label (brand/size/care tag), Other. Return only the label.",
               },
               { type: "image", image: data.dataUrl },
             ],
