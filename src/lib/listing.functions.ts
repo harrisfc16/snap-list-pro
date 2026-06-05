@@ -51,7 +51,7 @@ export const generateListing = createServerFn({ method: "POST" })
     if (!key) throw new Error("Missing LOVABLE_API_KEY");
 
     const gateway = createLovableAiGatewayProvider(key);
-    const model = gateway("google/gemini-2.5-flash");
+    const model = gateway("google/gemini-3-flash-preview");
 
     const userText = [
       "Generate a complete reseller listing for this clothing/shoe/accessory item from the photos and details below.",
@@ -85,6 +85,7 @@ export const generateListing = createServerFn({ method: "POST" })
 
     const result = await generateText({
       model,
+      maxOutputTokens: 8000,
       output: Output.object({ schema: ListingSchema }),
       messages: [
         {
