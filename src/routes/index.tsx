@@ -8,13 +8,13 @@ import { generateListing, guessPhotoLabel, type Listing } from "@/lib/listing.fu
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "SnapList — Photo to eBay listing in seconds" },
-      { name: "description", content: "Snap your clothing or shoes, get a ready-to-paste eBay listing with tags auto-digitized." },
-      { property: "og:title", content: "SnapList" },
-      { property: "og:description", content: "Photo-to-listing assistant for eBay resellers." },
+      { title: "ListFast — AI listings for eBay & Poshmark resellers" },
+      { name: "description", content: "Upload photos, get a full eBay + Poshmark listing: title, specifics, descriptions, keywords, category, price." },
+      { property: "og:title", content: "ListFast" },
+      { property: "og:description", content: "AI listing generator for clothing resellers." },
     ],
   }),
-  component: SnapList,
+  component: ListFast,
 });
 
 type Photo = {
@@ -23,15 +23,16 @@ type Photo = {
   label: string;
 };
 
-const LABELS = ["Front", "Back", "Brand tag", "Size tag", "Care tag", "Detail", "Flaw", "Other"];
+const LABELS = ["Front", "Back", "Detail", "Tag/Label", "Other"];
 const CONDITIONS = ["New with tags", "New without tags", "Excellent", "Good", "Fair"];
 const PROGRESS_MESSAGES = [
+  "Analyzing your item... ✨",
   "Reading your tags... 🏷️",
-  "Decoding care symbols... 🧺",
+  "Pricing the market... 💰",
   "Drafting your title... ✍️",
   "Picking the perfect keywords... 🔑",
-  "Polishing the description... ✨",
-  "Almost there — boxing it up... 📦",
+  "Polishing the descriptions... 📝",
+  "Almost there... 📦",
 ];
 
 function fileToDataUrl(file: File): Promise<string> {
