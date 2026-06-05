@@ -64,12 +64,13 @@ async function downscaleImage(file: File, maxDim = 1600, quality = 0.82): Promis
   return canvas.toDataURL("image/jpeg", quality);
 }
 
-function SnapList() {
+function ListFast() {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [brand, setBrand] = useState("");
   const [size, setSize] = useState("");
   const [condition, setCondition] = useState("");
   const [notes, setNotes] = useState("");
+  const [skuNumber, setSkuNumber] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [progressIdx, setProgressIdx] = useState(0);
   const [listing, setListing] = useState<Listing | null>(null);
