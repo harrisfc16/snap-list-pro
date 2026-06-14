@@ -188,6 +188,7 @@ export const guessPhotoLabel = createServerFn({ method: "POST" })
     try {
       const result = await generateText({
         model,
+        maxRetries: 0,
         output: Output.object({
           schema: z.object({ label: z.enum(PhotoLabels) }),
         }),
@@ -235,6 +236,7 @@ export const guessItemDetails = createServerFn({ method: "POST" })
     try {
       const result = await generateText({
         model,
+        maxRetries: 0,
         output: Output.object({ schema: DetailsSchema }),
         messages: [
           {
