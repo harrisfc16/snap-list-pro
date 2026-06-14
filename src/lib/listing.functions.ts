@@ -36,13 +36,15 @@ const ListingSchema = z.object({
   priceNote: z.string().optional().default(""),
 });
 
+const looseString = z.preprocess((value) => (typeof value === "string" ? value : ""), z.string());
+
 const DetectionResultSchema = z.object({
-  photos: z.array(z.object({ index: z.coerce.number(), label: z.string() })).optional().default([]),
-  brand: z.string().optional().default(""),
-  size: z.string().optional().default(""),
-  color: z.string().optional().default(""),
-  condition: z.string().optional().default(""),
-  itemType: z.string().optional().default(""),
+  photos: z.array(z.object({ index: z.coerce.number().catch(0), label: z.coerce.string().catch("") })).catch([]),
+  brand: looseString,
+  size: looseString,
+  color: looseString,
+  condition: looseString,
+  itemType: looseString,
 });
 
 const EMPTY_DETECTION = { photos: [], brand: "", size: "", color: "", condition: "", itemType: "" };
