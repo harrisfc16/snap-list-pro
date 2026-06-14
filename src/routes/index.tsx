@@ -91,7 +91,7 @@ function ListFast() {
   const [size, setSize] = useState("");
   const [condition, setCondition] = useState("");
   const [notes, setNotes] = useState("");
-  const [skuNumber, setSkuNumber] = useState<string>("01");
+  const [skuNumber, setSkuNumber] = useState<string>("1");
   const [color, setColor] = useState("");
   const [itemType, setItemType] = useState<string>("");
   const [aiFields, setAiFields] = useState<{ brand?: boolean; size?: boolean; color?: boolean; condition?: boolean; itemType?: boolean }>({});
