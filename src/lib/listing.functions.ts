@@ -36,6 +36,31 @@ const ListingSchema = z.object({
   priceNote: z.string().optional().default(""),
 });
 
+const DetectionSchema = z.object({
+  photos: z.array(
+    z.object({
+      index: z.number().describe("1-based photo index"),
+      label: z.string().describe("Best dropdown label for this photo"),
+    }),
+  ),
+  brand: z.string().optional().describe("Brand name read from tag, or empty if unknown"),
+  size: z.string().optional().describe("Size read from tag, or empty if unknown"),
+  color: z.string().optional().describe("Primary color in plain English, or empty if unknown"),
+  condition: z.string().optional().describe("New with tags, New without tags, Excellent, Good, Fair, or empty if unsure"),
+  itemType: z.string().optional().describe("Clothing, Shoes, Bags, Accessories, Electronics, Home, Collectibles, Beauty, Toys, Books, Other, or empty if unsure"),
+});
+
+function aiErrorMessage(err: unknown) {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/too many requests|rate limit|\b429\b/i.test(message)) {
+    return "AI is receiving too many photo requests right now. Please wait a moment, then try again.";
+  }
+  if (/credits|payment required|\b402\b/i.test(message)) {
+    return "AI credits are exhausted for this workspace.";
+  }
+  return "AI could not finish this request. Please try again.";
+}
+
 export const generateListing = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => InputSchema.parse(input))
   .handler(async ({ data }) => {
@@ -78,28 +103,75 @@ export const generateListing = createServerFn({ method: "POST" })
       "- prices (USD whole numbers): priceEbayLow/priceEbayHigh = realistic Buy-It-Now range based on brand, condition, current resale market. pricePoshmark = single list price (typically slightly above eBay high to allow for offers). priceFloor = absolute don't-go-below. priceNote: 1-2 sentences on what's driving the price.",
     ].join("\n");
 
-    const result = await generateText({
-      model,
-      maxOutputTokens: 8000,
-      output: Output.object({ schema: ListingSchema }),
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: userText },
-            ...data.photos.map((p) => ({
-              type: "image" as const,
-              image: p.dataUrl,
-            })),
-          ],
-        },
-      ],
-    });
+    try {
+      const result = await generateText({
+        model,
+        maxRetries: 0,
+        maxOutputTokens: 8000,
+        output: Output.object({ schema: ListingSchema }),
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: userText },
+              ...data.photos.map((p) => ({
+                type: "image" as const,
+                image: p.dataUrl,
+              })),
+            ],
+          },
+        ],
+      });
 
-    return result.output;
+      return { ok: true as const, listing: result.output };
+    } catch (err) {
+      console.error("generateListing failed", err);
+      return { ok: false as const, error: aiErrorMessage(err) };
+    }
   });
 
 export type Listing = z.infer<typeof ListingSchema>;
+
+export const analyzeUploadedPhotos = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ photos: z.array(z.string().min(20)).min(1).max(8) }).parse(input),
+  )
+  .handler(async ({ data }) => {
+    const key = process.env.LOVABLE_API_KEY;
+    if (!key) throw new Error("Missing LOVABLE_API_KEY");
+
+    const gateway = createLovableAiGatewayProvider(key);
+    const model = gateway("google/gemini-2.5-flash-lite");
+
+    try {
+      const result = await generateText({
+        model,
+        maxRetries: 0,
+        output: Output.object({ schema: DetectionSchema }),
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: [
+                  "Analyze these resale photos in one pass.",
+                  "For every photo, return its 1-based index and the best label from this exact list: Front, Back, Side, Detail, Tag/Label, Flaw, Styled / On Model, Measurements, Measure — Bust/Chest, Measure — Waist, Measure — Hips, Measure — Length, Measure — Sleeve, Measure — Inseam, Measure — Shoulders, Measure — Rise, Measure — Thigh, Other.",
+                  "If you see ANY measuring tape in a photo — especially pink, yellow, white, or flexible tailor tape — label that photo Measurements unless the measurement type is obvious, then use the specific Measure label.",
+                  "Also extract brand, size, color, condition, and itemType from the photos. Leave any field empty if you are not confident. Do not guess.",
+                ].join("\n"),
+              },
+              ...data.photos.map((url) => ({ type: "image" as const, image: url })),
+            ],
+          },
+        ],
+      });
+      return { ok: true as const, ...result.output };
+    } catch (err) {
+      console.error("analyzeUploadedPhotos failed", err);
+      return { ok: false as const, error: aiErrorMessage(err), photos: [] };
+    }
+  });
 
 // Quick auto-label guess for a single uploaded photo
 const PhotoLabels = ["Front", "Back", "Detail", "Tag/Label", "Measurements", "Other"] as const;
@@ -116,6 +188,7 @@ export const guessPhotoLabel = createServerFn({ method: "POST" })
     try {
       const result = await generateText({
         model,
+        maxRetries: 0,
         output: Output.object({
           schema: z.object({ label: z.enum(PhotoLabels) }),
         }),
@@ -163,6 +236,7 @@ export const guessItemDetails = createServerFn({ method: "POST" })
     try {
       const result = await generateText({
         model,
+        maxRetries: 0,
         output: Output.object({ schema: DetailsSchema }),
         messages: [
           {
