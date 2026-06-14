@@ -36,19 +36,16 @@ const ListingSchema = z.object({
   priceNote: z.string().optional().default(""),
 });
 
-const DetectionSchema = z.object({
-  photos: z.array(
-    z.object({
-      index: z.number().describe("1-based photo index"),
-      label: z.string().describe("Best dropdown label for this photo"),
-    }),
-  ),
-  brand: z.string().optional().describe("Brand name read from tag, or empty if unknown"),
-  size: z.string().optional().describe("Size read from tag, or empty if unknown"),
-  color: z.string().optional().describe("Primary color in plain English, or empty if unknown"),
-  condition: z.string().optional().describe("New with tags, New without tags, Excellent, Good, Fair, or empty if unsure"),
-  itemType: z.string().optional().describe("Clothing, Shoes, Bags, Accessories, Electronics, Home, Collectibles, Beauty, Toys, Books, Other, or empty if unsure"),
+const DetectionResultSchema = z.object({
+  photos: z.array(z.object({ index: z.coerce.number(), label: z.string() })).optional().default([]),
+  brand: z.string().optional().default(""),
+  size: z.string().optional().default(""),
+  color: z.string().optional().default(""),
+  condition: z.string().optional().default(""),
+  itemType: z.string().optional().default(""),
 });
+
+const EMPTY_DETECTION = { photos: [], brand: "", size: "", color: "", condition: "", itemType: "" };
 
 function aiErrorMessage(err: unknown) {
   const message = err instanceof Error ? err.message : String(err);
@@ -59,6 +56,15 @@ function aiErrorMessage(err: unknown) {
     return "AI credits are exhausted for this workspace.";
   }
   return "AI could not finish this request. Please try again.";
+}
+
+function parseJsonObject(text: string): unknown {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+  const raw = fenced || text;
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return {};
+  return JSON.parse(raw.slice(start, end + 1));
 }
 
 export const generateListing = createServerFn({ method: "POST" })
