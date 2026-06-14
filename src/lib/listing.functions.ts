@@ -38,6 +38,23 @@ const ListingSchema = z.object({
 
 const looseString = z.preprocess((value) => (typeof value === "string" ? value : ""), z.string());
 
+const ListingResultSchema = z.object({
+  categoryCode: looseString,
+  title: looseString,
+  itemSpecifics: z.record(z.coerce.string()).catch({}),
+  descriptionEbay: looseString,
+  conditionDescription: looseString,
+  descriptionPoshmark: looseString,
+  categoryEbay: looseString,
+  categoryPoshmark: looseString,
+  keywords: z.array(z.coerce.string()).catch([]),
+  priceEbayLow: z.coerce.number().catch(0),
+  priceEbayHigh: z.coerce.number().catch(0),
+  pricePoshmark: z.coerce.number().catch(0),
+  priceFloor: z.coerce.number().catch(0),
+  priceNote: looseString,
+});
+
 const DetectionResultSchema = z.object({
   photos: z.array(z.object({ index: z.coerce.number().catch(0), label: z.coerce.string().catch("") })).catch([]),
   brand: looseString,
