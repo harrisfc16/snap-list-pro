@@ -36,19 +36,35 @@ const ListingSchema = z.object({
   priceNote: z.string().optional().default(""),
 });
 
-const DetectionSchema = z.object({
-  photos: z.array(
-    z.object({
-      index: z.number().describe("1-based photo index"),
-      label: z.string().describe("Best dropdown label for this photo"),
-    }),
-  ),
-  brand: z.string().optional().describe("Brand name read from tag, or empty if unknown"),
-  size: z.string().optional().describe("Size read from tag, or empty if unknown"),
-  color: z.string().optional().describe("Primary color in plain English, or empty if unknown"),
-  condition: z.string().optional().describe("New with tags, New without tags, Excellent, Good, Fair, or empty if unsure"),
-  itemType: z.string().optional().describe("Clothing, Shoes, Bags, Accessories, Electronics, Home, Collectibles, Beauty, Toys, Books, Other, or empty if unsure"),
+const looseString = z.preprocess((value) => (typeof value === "string" ? value : ""), z.string());
+
+const ListingResultSchema = z.object({
+  categoryCode: looseString,
+  title: looseString,
+  itemSpecifics: z.record(z.coerce.string()).catch({}),
+  descriptionEbay: looseString,
+  conditionDescription: looseString,
+  descriptionPoshmark: looseString,
+  categoryEbay: looseString,
+  categoryPoshmark: looseString,
+  keywords: z.array(z.coerce.string()).catch([]),
+  priceEbayLow: z.coerce.number().catch(0),
+  priceEbayHigh: z.coerce.number().catch(0),
+  pricePoshmark: z.coerce.number().catch(0),
+  priceFloor: z.coerce.number().catch(0),
+  priceNote: looseString,
 });
+
+const DetectionResultSchema = z.object({
+  photos: z.array(z.object({ index: z.coerce.number().catch(0), label: z.coerce.string().catch("") })).catch([]),
+  brand: looseString,
+  size: looseString,
+  color: looseString,
+  condition: looseString,
+  itemType: looseString,
+});
+
+const EMPTY_DETECTION = { photos: [], brand: "", size: "", color: "", condition: "", itemType: "" };
 
 function aiErrorMessage(err: unknown) {
   const message = err instanceof Error ? err.message : String(err);
@@ -59,6 +75,15 @@ function aiErrorMessage(err: unknown) {
     return "AI credits are exhausted for this workspace.";
   }
   return "AI could not finish this request. Please try again.";
+}
+
+function parseJsonObject(text: string): unknown {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+  const raw = fenced || text;
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return {};
+  return JSON.parse(raw.slice(start, end + 1));
 }
 
 export const generateListing = createServerFn({ method: "POST" })
@@ -108,12 +133,14 @@ export const generateListing = createServerFn({ method: "POST" })
         model,
         maxRetries: 0,
         maxOutputTokens: 8000,
-        output: Output.object({ schema: ListingSchema }),
         messages: [
           {
             role: "user",
             content: [
-              { type: "text", text: userText },
+              {
+                type: "text",
+                text: `${userText}\n\nReturn ONLY a valid JSON object with keys: categoryCode, title, itemSpecifics, descriptionEbay, conditionDescription, descriptionPoshmark, categoryEbay, categoryPoshmark, keywords, priceEbayLow, priceEbayHigh, pricePoshmark, priceFloor, priceNote. Do not wrap in markdown.`,
+              },
               ...data.photos.map((p) => ({
                 type: "image" as const,
                 image: p.dataUrl,
@@ -123,7 +150,8 @@ export const generateListing = createServerFn({ method: "POST" })
         ],
       });
 
-      return { ok: true as const, listing: result.output };
+      const listing = ListingResultSchema.parse(parseJsonObject(result.text));
+      return { ok: true as const, listing };
     } catch (err) {
       console.error("generateListing failed", err);
       return { ok: false as const, error: aiErrorMessage(err) };
@@ -147,7 +175,6 @@ export const analyzeUploadedPhotos = createServerFn({ method: "POST" })
       const result = await generateText({
         model,
         maxRetries: 0,
-        output: Output.object({ schema: DetectionSchema }),
         messages: [
           {
             role: "user",
@@ -156,6 +183,7 @@ export const analyzeUploadedPhotos = createServerFn({ method: "POST" })
                 type: "text",
                 text: [
                   "Analyze these resale photos in one pass.",
+                  "Return ONLY a JSON object with this exact shape: {\"photos\":[{\"index\":1,\"label\":\"Front\"}],\"brand\":\"\",\"size\":\"\",\"color\":\"\",\"condition\":\"\",\"itemType\":\"\"}.",
                   "For every photo, return its 1-based index and the best label from this exact list: Front, Back, Side, Detail, Tag/Label, Flaw, Styled / On Model, Measurements, Measure — Bust/Chest, Measure — Waist, Measure — Hips, Measure — Length, Measure — Sleeve, Measure — Inseam, Measure — Shoulders, Measure — Rise, Measure — Thigh, Other.",
                   "If you see ANY measuring tape in a photo — especially pink, yellow, white, or flexible tailor tape — label that photo Measurements unless the measurement type is obvious, then use the specific Measure label.",
                   "Also extract brand, size, color, condition, and itemType from the photos. Leave any field empty if you are not confident. Do not guess.",
@@ -166,10 +194,11 @@ export const analyzeUploadedPhotos = createServerFn({ method: "POST" })
           },
         ],
       });
-      return { ok: true as const, ...result.output };
+      const detection = DetectionResultSchema.parse(parseJsonObject(result.text));
+      return { ok: true as const, ...detection };
     } catch (err) {
       console.error("analyzeUploadedPhotos failed", err);
-      return { ok: false as const, error: aiErrorMessage(err), photos: [] };
+      return { ok: false as const, error: aiErrorMessage(err), ...EMPTY_DETECTION };
     }
   });
 
