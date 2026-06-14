@@ -133,12 +133,14 @@ export const generateListing = createServerFn({ method: "POST" })
         model,
         maxRetries: 0,
         maxOutputTokens: 8000,
-        output: Output.object({ schema: ListingSchema }),
         messages: [
           {
             role: "user",
             content: [
-              { type: "text", text: userText },
+              {
+                type: "text",
+                text: `${userText}\n\nReturn ONLY a valid JSON object with keys: categoryCode, title, itemSpecifics, descriptionEbay, conditionDescription, descriptionPoshmark, categoryEbay, categoryPoshmark, keywords, priceEbayLow, priceEbayHigh, pricePoshmark, priceFloor, priceNote. Do not wrap in markdown.`,
+              },
               ...data.photos.map((p) => ({
                 type: "image" as const,
                 image: p.dataUrl,
@@ -148,7 +150,8 @@ export const generateListing = createServerFn({ method: "POST" })
         ],
       });
 
-      return { ok: true as const, listing: result.output };
+      const listing = ListingResultSchema.parse(parseJsonObject(result.text));
+      return { ok: true as const, listing };
     } catch (err) {
       console.error("generateListing failed", err);
       return { ok: false as const, error: aiErrorMessage(err) };
