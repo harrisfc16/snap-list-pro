@@ -116,7 +116,7 @@ export const generateListing = createServerFn({ method: "POST" })
 export type Listing = z.infer<typeof ListingSchema>;
 
 // Quick auto-label guess for a single uploaded photo
-const PhotoLabels = ["Front", "Back", "Detail", "Tag/Label", "Other"] as const;
+const PhotoLabels = ["Front", "Back", "Detail", "Tag/Label", "Measurements", "Other"] as const;
 
 export const guessPhotoLabel = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ dataUrl: z.string().min(20) }).parse(input))
@@ -140,7 +140,7 @@ export const guessPhotoLabel = createServerFn({ method: "POST" })
               {
                 type: "text",
                 text:
-                  "Classify this resale photo into ONE of: Front (full front), Back (full back), Detail (close-up of feature or flaw), Tag/Label (brand/size/care tag), Other. Return only the label.",
+                  "Classify this resale photo into ONE of: Front (full front of item), Back (full back of item), Detail (close-up of feature or flaw), Tag/Label (brand/size/care tag visible), Measurements (a tape measure — typically pink, yellow, or white — is laid across the item showing a measurement), Other. If you see ANY measuring tape in the photo, return 'Measurements'. Return only the label.",
               },
               { type: "image", image: data.dataUrl },
             ],
@@ -156,11 +156,11 @@ export const guessPhotoLabel = createServerFn({ method: "POST" })
 
 // Auto-detect item details from all uploaded photos
 const DetailsSchema = z.object({
-  brand: z.string().optional(),
-  size: z.string().optional(),
-  color: z.string().optional(),
-  condition: z.enum(["New with tags", "New without tags", "Excellent", "Good", "Fair", ""]).optional(),
-  itemType: z.enum(["Clothing", "Shoes", "Bags", "Accessories", "Electronics", "Home", "Collectibles", "Beauty", "Toys", "Books", "Other", ""]).optional(),
+  brand: z.string().optional().describe("Brand name read from tag, or empty if unknown"),
+  size: z.string().optional().describe("Size read from tag, or empty if unknown"),
+  color: z.string().optional().describe("Primary color in plain English, or empty if unknown"),
+  condition: z.string().optional().describe("One of: New with tags, New without tags, Excellent, Good, Fair. Empty if unsure."),
+  itemType: z.string().optional().describe("One of: Clothing, Shoes, Bags, Accessories, Electronics, Home, Collectibles, Beauty, Toys, Books, Other. Empty if unsure."),
 });
 
 export const guessItemDetails = createServerFn({ method: "POST" })
@@ -172,7 +172,7 @@ export const guessItemDetails = createServerFn({ method: "POST" })
     if (!key) throw new Error("Missing LOVABLE_API_KEY");
 
     const gateway = createLovableAiGatewayProvider(key);
-    const model = gateway("google/gemini-2.5-flash");
+    const model = gateway("google/gemini-3-flash-preview");
 
     try {
       const result = await generateText({
