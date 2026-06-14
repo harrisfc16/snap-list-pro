@@ -153,7 +153,6 @@ export const analyzeUploadedPhotos = createServerFn({ method: "POST" })
       const result = await generateText({
         model,
         maxRetries: 0,
-        output: Output.object({ schema: DetectionSchema }),
         messages: [
           {
             role: "user",
@@ -162,6 +161,7 @@ export const analyzeUploadedPhotos = createServerFn({ method: "POST" })
                 type: "text",
                 text: [
                   "Analyze these resale photos in one pass.",
+                  "Return ONLY a JSON object with this exact shape: {\"photos\":[{\"index\":1,\"label\":\"Front\"}],\"brand\":\"\",\"size\":\"\",\"color\":\"\",\"condition\":\"\",\"itemType\":\"\"}.",
                   "For every photo, return its 1-based index and the best label from this exact list: Front, Back, Side, Detail, Tag/Label, Flaw, Styled / On Model, Measurements, Measure — Bust/Chest, Measure — Waist, Measure — Hips, Measure — Length, Measure — Sleeve, Measure — Inseam, Measure — Shoulders, Measure — Rise, Measure — Thigh, Other.",
                   "If you see ANY measuring tape in a photo — especially pink, yellow, white, or flexible tailor tape — label that photo Measurements unless the measurement type is obvious, then use the specific Measure label.",
                   "Also extract brand, size, color, condition, and itemType from the photos. Leave any field empty if you are not confident. Do not guess.",
@@ -172,10 +172,11 @@ export const analyzeUploadedPhotos = createServerFn({ method: "POST" })
           },
         ],
       });
-      return { ok: true as const, ...result.output };
+      const detection = DetectionResultSchema.parse(parseJsonObject(result.text));
+      return { ok: true as const, ...detection };
     } catch (err) {
       console.error("analyzeUploadedPhotos failed", err);
-      return { ok: false as const, error: aiErrorMessage(err), photos: [] };
+      return { ok: false as const, error: aiErrorMessage(err), ...EMPTY_DETECTION };
     }
   });
 
