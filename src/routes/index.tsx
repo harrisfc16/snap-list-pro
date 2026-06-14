@@ -339,6 +339,18 @@ function ListFast() {
             )}
           </div>
           <div className="grid sm:grid-cols-2 gap-5">
+            <Field label="Item type" aiNote={aiFields.itemType}>
+              <select
+                value={itemType}
+                onChange={(e) => { setItemType(e.target.value); setAiFields((f) => ({ ...f, itemType: false })); }}
+                className="input"
+              >
+                <option value="">Auto-detect…</option>
+                {ITEM_TYPES.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </Field>
             <Field label="Brand" aiNote={aiFields.brand}>
               <input
                 value={brand}
@@ -347,14 +359,16 @@ function ListFast() {
                 placeholder="e.g. Acne Studios"
               />
             </Field>
-            <Field label="Size" aiNote={aiFields.size}>
-              <input
-                value={size}
-                onChange={(e) => { setSize(e.target.value); setAiFields((f) => ({ ...f, size: false })); }}
-                className="input"
-                placeholder="e.g. M / 10 US"
-              />
-            </Field>
+            {(!itemType || SIZED_TYPES.has(itemType)) && (
+              <Field label="Size" aiNote={aiFields.size}>
+                <input
+                  value={size}
+                  onChange={(e) => { setSize(e.target.value); setAiFields((f) => ({ ...f, size: false })); }}
+                  className="input"
+                  placeholder="e.g. M / 10 US"
+                />
+              </Field>
+            )}
             <Field label="Color" aiNote={aiFields.color}>
               <input
                 value={color}
@@ -375,12 +389,12 @@ function ListFast() {
                 ))}
               </select>
             </Field>
-            <Field label="Notes">
+            <Field label={MEASURABLE_TYPES.has(itemType) ? "Notes (flaws, measurements, fit)" : "Notes (model, specs, condition details)"}>
               <input
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 className="input"
-                placeholder="Flaws, measurements, fit"
+                placeholder={MEASURABLE_TYPES.has(itemType) ? "Flaws, measurements, fit" : "Model #, specs, accessories"}
               />
             </Field>
             <Field label="SKU number">
@@ -465,9 +479,9 @@ function ListFast() {
             <ResultCard
               title="eBay Description"
               accent="sage"
-              onCopy={() => copy(listing.descriptionEbay, "eBay description")}
+              onCopy={() => copy(ebayDescription, "eBay description")}
             >
-              <div className="whitespace-pre-wrap leading-relaxed text-sm font-light">{listing.descriptionEbay}</div>
+              <div className="whitespace-pre-wrap leading-relaxed text-sm font-light">{ebayDescription}</div>
             </ResultCard>
 
             <ResultCard
@@ -484,9 +498,9 @@ function ListFast() {
             <ResultCard
               title="Poshmark Description"
               accent="lavender"
-              onCopy={() => copy(listing.descriptionPoshmark, "Poshmark description")}
+              onCopy={() => copy(poshmarkDescription, "Poshmark description")}
             >
-              <div className="whitespace-pre-wrap leading-relaxed text-sm font-light">{listing.descriptionPoshmark}</div>
+              <div className="whitespace-pre-wrap leading-relaxed text-sm font-light">{poshmarkDescription}</div>
             </ResultCard>
 
             <ResultCard
