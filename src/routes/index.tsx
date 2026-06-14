@@ -136,7 +136,6 @@ function ListFast() {
     callAnalyzePhotos({ data: { photos: allUrls } })
       .then((res) => {
         if (!res?.ok) {
-          if (res?.error) toast.message(res.error);
           return;
         }
         const labelsByIndex = new Map(res.photos.map((photo) => [photo.index - 1, photo.label]));
