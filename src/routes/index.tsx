@@ -3,7 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { generateListing, guessPhotoLabel, guessItemDetails, type Listing } from "@/lib/listing.functions";
+import { analyzeUploadedPhotos, generateListing, type Listing } from "@/lib/listing.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -101,8 +101,7 @@ function ListFast() {
   const [listing, setListing] = useState<Listing | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const callGenerate = useServerFn(generateListing);
-  const callGuessLabel = useServerFn(guessPhotoLabel);
-  const callGuessDetails = useServerFn(guessItemDetails);
+  const callAnalyzePhotos = useServerFn(analyzeUploadedPhotos);
 
   useEffect(() => {
     if (!loading) return;
@@ -131,23 +130,22 @@ function ListFast() {
       label: ORDER_DEFAULTS[startIdx + i] || "Other",
     }));
     setPhotos((p) => [...p, ...seeded]);
-    // Fire-and-forget auto-labeling — only overrides if user hasn't manually picked.
-    for (const photo of seeded) {
-      callGuessLabel({ data: { dataUrl: photo.dataUrl } })
-        .then((res) => {
-          if (!res?.label) return;
-          setPhotos((ps) =>
-            ps.map((x) => (x.id === photo.id && !x.manual ? { ...x, label: res.label } : x)),
-          );
-        })
-        .catch(() => {});
-    }
-    // Auto-detect item details across all photos so far
+    // Auto-detect photo labels and item details in one call to avoid rate limits.
     const allUrls = [...photos.map((p) => p.dataUrl), ...next.map((p) => p.dataUrl)];
     setDetecting(true);
-    callGuessDetails({ data: { photos: allUrls } })
+    callAnalyzePhotos({ data: { photos: allUrls } })
       .then((res) => {
-        if (!res) return;
+        if (!res?.ok) {
+          if (res?.error) toast.message(res.error);
+          return;
+        }
+        const labelsByIndex = new Map(res.photos.map((photo) => [photo.index - 1, photo.label]));
+        setPhotos((ps) =>
+          ps.map((photo, index) => {
+            const label = labelsByIndex.get(index);
+            return label && ALL_LABELS.includes(label) && !photo.manual ? { ...photo, label } : photo;
+          }),
+        );
         const flags: typeof aiFields = {};
         if (res.brand && !brand) { setBrand(res.brand); flags.brand = true; }
         if (res.size && !size) { setSize(res.size); flags.size = true; }
@@ -158,7 +156,7 @@ function ListFast() {
       })
       .catch(() => {})
       .finally(() => setDetecting(false));
-  }, [photos, callGuessLabel, callGuessDetails, brand, size, color, condition, itemType, aiFields]);
+  }, [photos, callAnalyzePhotos, brand, size, color, condition, itemType, aiFields]);
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -189,7 +187,11 @@ function ListFast() {
           itemType: itemType || undefined,
         },
       });
-      setListing(result as Listing);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      setListing(result.listing as Listing);
       toast.success("Boom — ready to post! 🚀");
     } catch (err) {
       console.error(err);
