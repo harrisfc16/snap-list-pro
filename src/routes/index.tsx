@@ -91,7 +91,7 @@ function ListFast() {
   const [size, setSize] = useState("");
   const [condition, setCondition] = useState("");
   const [notes, setNotes] = useState("");
-  const [skuNumber, setSkuNumber] = useState<string>("");
+  const [skuNumber, setSkuNumber] = useState<string>("01");
   const [color, setColor] = useState("");
   const [itemType, setItemType] = useState<string>("");
   const [aiFields, setAiFields] = useState<{ brand?: boolean; size?: boolean; color?: boolean; condition?: boolean; itemType?: boolean }>({});
@@ -149,8 +149,14 @@ function ListFast() {
         if (res.brand && !brand) { setBrand(res.brand); flags.brand = true; }
         if (res.size && !size) { setSize(res.size); flags.size = true; }
         if (res.color && !color) { setColor(res.color); flags.color = true; }
-        if (res.condition && !condition) { setCondition(res.condition); flags.condition = true; }
-        if (res.itemType && !itemType) { setItemType(res.itemType); flags.itemType = true; }
+        if (res.condition && !condition) {
+          const match = CONDITIONS.find((c) => c.toLowerCase() === res.condition.toLowerCase().trim());
+          if (match) { setCondition(match); flags.condition = true; }
+        }
+        if (res.itemType && !itemType) {
+          const match = ITEM_TYPES.find((t) => t.toLowerCase() === res.itemType.toLowerCase().trim());
+          if (match) { setItemType(match); flags.itemType = true; }
+        }
         setAiFields((f) => ({ ...f, ...flags }));
       })
       .catch(() => {})
@@ -360,16 +366,14 @@ function ListFast() {
                 placeholder="e.g. Acne Studios"
               />
             </Field>
-            {(!itemType || SIZED_TYPES.has(itemType)) && (
-              <Field label="Size" aiNote={aiFields.size}>
+            <Field label="Size" aiNote={aiFields.size}>
                 <input
                   value={size}
                   onChange={(e) => { setSize(e.target.value); setAiFields((f) => ({ ...f, size: false })); }}
                   className="input"
                   placeholder="e.g. M / 10 US"
                 />
-              </Field>
-            )}
+            </Field>
             <Field label="Color" aiNote={aiFields.color}>
               <input
                 value={color}
