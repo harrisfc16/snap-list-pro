@@ -21,10 +21,31 @@ type Photo = {
   id: string;
   dataUrl: string;
   label: string;
+  manual?: boolean;
 };
 
-const LABELS = ["Front", "Back", "Detail", "Tag/Label", "Other"];
+const LABEL_GROUPS: { group: string; options: string[] }[] = [
+  { group: "Overview", options: ["Front", "Back", "Side", "Detail", "Tag/Label", "Flaw", "Styled / On Model"] },
+  { group: "Measurements", options: [
+    "Measurements",
+    "Measure — Bust/Chest",
+    "Measure — Waist",
+    "Measure — Hips",
+    "Measure — Length",
+    "Measure — Sleeve",
+    "Measure — Inseam",
+    "Measure — Shoulders",
+    "Measure — Rise",
+    "Measure — Thigh",
+  ]},
+  { group: "Other", options: ["Other"] },
+];
+const ALL_LABELS = LABEL_GROUPS.flatMap((g) => g.options);
+const ORDER_DEFAULTS = ["Front", "Back", "Detail", "Tag/Label", "Detail", "Detail", "Measurements", "Other"];
 const CONDITIONS = ["New with tags", "New without tags", "Excellent", "Good", "Fair"];
+const ITEM_TYPES = ["Clothing", "Shoes", "Bags", "Accessories", "Electronics", "Home", "Collectibles", "Beauty", "Toys", "Books", "Other"];
+const SIZED_TYPES = new Set(["Clothing", "Shoes"]);
+const MEASURABLE_TYPES = new Set(["Clothing"]);
 const PROGRESS_MESSAGES = [
   "Analyzing your item... ✨",
   "Reading your tags... 🏷️",
@@ -72,7 +93,8 @@ function ListFast() {
   const [notes, setNotes] = useState("");
   const [skuNumber, setSkuNumber] = useState<string>("");
   const [color, setColor] = useState("");
-  const [aiFields, setAiFields] = useState<{ brand?: boolean; size?: boolean; color?: boolean; condition?: boolean }>({});
+  const [itemType, setItemType] = useState<string>("");
+  const [aiFields, setAiFields] = useState<{ brand?: boolean; size?: boolean; color?: boolean; condition?: boolean; itemType?: boolean }>({});
   const [detecting, setDetecting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [progressIdx, setProgressIdx] = useState(0);
@@ -102,14 +124,20 @@ function ListFast() {
       const dataUrl = await downscaleImage(f);
       next.push({ id: crypto.randomUUID(), dataUrl, label: "" });
     }
-    setPhotos((p) => [...p, ...next]);
-    // Fire-and-forget auto-labeling for each new photo
-    for (const photo of next) {
+    const startIdx = photos.length;
+    // Seed labels by upload order immediately so something is always visible.
+    const seeded = next.map((p, i) => ({
+      ...p,
+      label: ORDER_DEFAULTS[startIdx + i] || "Other",
+    }));
+    setPhotos((p) => [...p, ...seeded]);
+    // Fire-and-forget auto-labeling — only overrides if user hasn't manually picked.
+    for (const photo of seeded) {
       callGuessLabel({ data: { dataUrl: photo.dataUrl } })
         .then((res) => {
           if (!res?.label) return;
           setPhotos((ps) =>
-            ps.map((x) => (x.id === photo.id && !x.label ? { ...x, label: res.label } : x)),
+            ps.map((x) => (x.id === photo.id && !x.manual ? { ...x, label: res.label } : x)),
           );
         })
         .catch(() => {});
@@ -125,11 +153,12 @@ function ListFast() {
         if (res.size && !size) { setSize(res.size); flags.size = true; }
         if (res.color && !color) { setColor(res.color); flags.color = true; }
         if (res.condition && !condition) { setCondition(res.condition); flags.condition = true; }
+        if (res.itemType && !itemType) { setItemType(res.itemType); flags.itemType = true; }
         setAiFields((f) => ({ ...f, ...flags }));
       })
       .catch(() => {})
       .finally(() => setDetecting(false));
-  }, [photos, callGuessLabel, callGuessDetails, brand, size, color, condition, aiFields]);
+  }, [photos, callGuessLabel, callGuessDetails, brand, size, color, condition, itemType, aiFields]);
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -153,10 +182,11 @@ function ListFast() {
         data: {
           photos: photos.map((p) => ({ dataUrl: p.dataUrl, label: p.label || undefined })),
           brand: brand || undefined,
-          size: size || undefined,
+          size: SIZED_TYPES.has(itemType) || !itemType ? size || undefined : undefined,
           condition: condition || undefined,
           notes: [color ? `Color: ${color}` : "", notes].filter(Boolean).join(". ") || undefined,
           skuNumber: skuN,
+          itemType: itemType || undefined,
         },
       });
       setListing(result as Listing);
@@ -175,6 +205,10 @@ function ListFast() {
   };
 
   const sku = listing ? buildSku(listing.categoryCode, parseInt(skuNumber, 10) || 0) : "";
+  const itemNum = parseInt(skuNumber, 10) || 0;
+  const skuTag = listing ? `Item# ${itemNum} | SKU: ${sku}` : "";
+  const ebayDescription = listing ? `${listing.descriptionEbay}\n\n${skuTag}` : "";
+  const poshmarkDescription = listing ? `${listing.descriptionPoshmark}\n\n${skuTag}` : "";
 
   const copyAll = () => {
     if (!listing) return;
@@ -192,13 +226,13 @@ function ListFast() {
       specifics,
       ``,
       `EBAY DESCRIPTION:`,
-      listing.descriptionEbay,
+      ebayDescription,
       ``,
       `CONDITION DESCRIPTION (${listing.conditionDescription.length}/200):`,
       listing.conditionDescription,
       ``,
       `POSHMARK DESCRIPTION:`,
-      listing.descriptionPoshmark,
+      poshmarkDescription,
       ``,
       `KEYWORDS:`,
       listing.keywords.join(", "),
