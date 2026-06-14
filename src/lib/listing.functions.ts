@@ -20,34 +20,20 @@ const InputSchema = z.object({
 });
 
 const ListingSchema = z.object({
-  categoryCode: z.enum([
-    "TOP", "BTM", "DRESS", "SHOE", "BAG", "ACC", "OUTER", "DENIM",
-    "ELEC", "HOME", "COLLECT", "BEAUTY", "TOY", "BOOK", "OTHER",
-  ]),
+  categoryCode: z.string().describe("One of: TOP, BTM, DRESS, SHOE, BAG, ACC, OUTER, DENIM, ELEC, HOME, COLLECT, BEAUTY, TOY, BOOK, OTHER"),
   title: z.string().describe("eBay title, max 80 characters"),
-  itemSpecifics: z.object({
-    Brand: z.string().optional(),
-    Department: z.string().optional(),
-    Size: z.string().optional(),
-    Color: z.string().optional(),
-    Style: z.string().optional(),
-    Material: z.string().optional(),
-    Type: z.string().optional(),
-    Era: z.string().optional(),
-    Model: z.string().optional(),
-    Features: z.string().optional(),
-  }),
+  itemSpecifics: z.record(z.string(), z.string()).describe("Key-value pairs like Brand, Size, Color, Material, Type, Model, Features. Only include fields you can determine."),
   descriptionEbay: z.string().describe("eBay description, 3-5 short paragraphs"),
   conditionDescription: z.string().describe("eBay condition description, max 200 chars, factual"),
   descriptionPoshmark: z.string().describe("Poshmark description, friendlier tone, 2-4 short paragraphs"),
   categoryEbay: z.string().describe("Full eBay category path"),
   categoryPoshmark: z.string().describe("Full Poshmark category path"),
-  keywords: z.array(z.string()).min(12).max(30),
+  keywords: z.array(z.string()).describe("18-25 high-traffic search keywords"),
   priceEbayLow: z.number(),
   priceEbayHigh: z.number(),
   pricePoshmark: z.number(),
   priceFloor: z.number(),
-  priceNote: z.string(),
+  priceNote: z.string().optional().default(""),
 });
 
 export const generateListing = createServerFn({ method: "POST" })
