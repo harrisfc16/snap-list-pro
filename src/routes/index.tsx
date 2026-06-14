@@ -65,6 +65,53 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+// Map common AI condition outputs (exact or fuzzy) onto our allowed list.
+function matchCondition(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const text = String(raw).toLowerCase().trim();
+  if (!text) return null;
+  const aliasMap: Record<string, string> = {
+    "new with tags": "New with tags",
+    "nwt": "New with tags",
+    "new w/ tags": "New with tags",
+    "new with tag": "New with tags",
+    "tags attached": "New with tags",
+    "new without tags": "New without tags",
+    "nwot": "New without tags",
+    "new w/o tags": "New without tags",
+    "new without tag": "New without tags",
+    "no tags": "New without tags",
+    "excellent": "Excellent",
+    "euc": "Excellent",
+    "excellent used condition": "Excellent",
+    "like new": "Excellent",
+    "mint": "Excellent",
+    "near mint": "Excellent",
+    "pristine": "Excellent",
+    "good": "Good",
+    "pre-owned": "Good",
+    "preowned": "Good",
+    "pre loved": "Good",
+    "preloved": "Good",
+    "gently used": "Good",
+    "used": "Good",
+    "very good": "Good",
+    "fair": "Fair",
+    "poor": "Fair",
+    "worn": "Fair",
+    "heavy wear": "Fair",
+  };
+  if (aliasMap[text]) return aliasMap[text];
+  for (const c of CONDITIONS) {
+    if (text === c.toLowerCase()) return c;
+    if (text.includes(c.toLowerCase())) return c;
+  }
+  if (/new|nwt|nwot|mint|pristine|like new|euc/i.test(text)) return "Excellent";
+  if (/used|good|pre[- ]?owned|pre[- ]?loved|worn|loved/i.test(text)) return "Good";
+  if (/fair|poor|damaged|stain|hole|tear|heavy/i.test(text)) return "Fair";
+  return null;
+}
+
 async function downscaleImage(file: File, maxDim = 1600, quality = 0.82): Promise<string> {
   const dataUrl = await fileToDataUrl(file);
   const img = new Image();
