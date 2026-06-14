@@ -149,8 +149,8 @@ function ListFast() {
         if (res.brand && !brand) { setBrand(res.brand); flags.brand = true; }
         if (res.size && !size) { setSize(res.size); flags.size = true; }
         if (res.color && !color) { setColor(res.color); flags.color = true; }
-        if (res.condition && !condition) {
-          const match = CONDITIONS.find((c) => c.toLowerCase() === res.condition.toLowerCase().trim());
+        if (!condition) {
+          const match = matchCondition(res.condition);
           if (match) { setCondition(match); flags.condition = true; }
         }
         if (res.itemType && !itemType) {
