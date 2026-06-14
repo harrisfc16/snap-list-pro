@@ -309,13 +309,17 @@ function ListFast() {
                   <select
                     value={p.label}
                     onChange={(e) =>
-                      setPhotos((ps) => ps.map((x) => (x.id === p.id ? { ...x, label: e.target.value } : x)))
+                      setPhotos((ps) => ps.map((x) => (x.id === p.id ? { ...x, label: e.target.value, manual: true } : x)))
                     }
                     className="mt-2 w-full text-xs rounded-md border border-border bg-card text-foreground px-2 py-1.5 font-light tracking-wide"
                   >
                     <option value="">Label…</option>
-                    {LABELS.map((l) => (
-                      <option key={l} value={l}>{l}</option>
+                    {LABEL_GROUPS.map((g) => (
+                      <optgroup key={g.group} label={g.group}>
+                        {g.options.map((l) => (
+                          <option key={l} value={l}>{l}</option>
+                        ))}
+                      </optgroup>
                     ))}
                   </select>
                 </div>
