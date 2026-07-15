@@ -43,7 +43,7 @@ const LABEL_GROUPS: { group: string; options: string[] }[] = [
 const ALL_LABELS = LABEL_GROUPS.flatMap((g) => g.options);
 const ORDER_DEFAULTS = ["Front", "Back", "Detail", "Tag/Label", "Detail", "Detail", "Measurements", "Other"];
 const CONDITIONS = ["New with tags", "New without tags", "Excellent", "Good", "Fair"];
-const ITEM_TYPES = ["Clothing", "Shoes", "Bags", "Accessories", "Electronics", "Home", "Collectibles", "Beauty", "Toys", "Books", "Other"];
+const ITEM_TYPES = ["Clothing", "Shoes", "Bags", "Purses", "Jewelry", "Accessories", "Electronics", "Home", "Collectibles", "Beauty", "Toys", "Books", "Other"];
 const SIZED_TYPES = new Set(["Clothing", "Shoes"]);
 const MEASURABLE_TYPES = new Set(["Clothing"]);
 const PROGRESS_MESSAGES = [
