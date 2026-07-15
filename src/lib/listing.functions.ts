@@ -120,7 +120,7 @@ export const generateListing = createServerFn({ method: "POST" })
       "- categoryCode: pick ONE — TOP, BTM, DRESS, SHOE, BAG, PURSE (purses/handbags), JEWEL (jewelry), ACC, OUTER, DENIM, ELEC (electronics), HOME (home goods), COLLECT (collectibles), BEAUTY, TOY, BOOK, OTHER.",
       "- title: pack keywords aggressively. Target 78-80 chars, NEVER exceed 80 characters (hard cap — count and shorten if needed). Order: Brand + Item Type + Model (if any) + Size + Color + 3-5 high-traffic search descriptors (style, fit, era, material, aesthetic, occasion). No filler words ('a', 'the', 'with'), no punctuation, no symbols. Maximize discoverability.",
       "- itemSpecifics: fill ONLY the fields you can actually determine; omit any you can't.",
-      "- descriptionEbay: structured & factual, MAX 1000 words total (hard cap). 1-2 sentence hook PACKED with searchable terms, then bullet points for material, fit/size (WITHOUT numeric measurements), condition, design features, then a closing styling/use note. Extremely keyword-dense — work in synonyms, brand associations, style descriptors, era tags, and buyer search terms naturally. After the final line, add a blank line then 'Keywords: ' followed by ALL keywords comma-separated. DO NOT mention shipping, returns, or any measurements.",
+      "- descriptionEbay: structured & factual, MAX 1000 CHARACTERS total (hard cap — count characters, not words, and shorten to fit). 1-2 sentence hook packed with searchable terms, then compact bullets for material, fit/size (WITHOUT numeric measurements), condition, and design features. Keyword-dense but concise. After the final line, add a blank line then 'Keywords: ' followed by keywords comma-separated (trim keywords if needed to stay under 1000 chars). DO NOT mention shipping, returns, or any measurements.",
       "- conditionDescription: MAX 200 characters. Honest, factual; note whether any wear/distressing is intentional or actual.",
       "- descriptionPoshmark: casual, social, conversational AND keyword-dense, MAX 1000 words. Energetic hook, then brand/size/material/condition/styling ideas (work in synonyms, aesthetics, occasions, comparable brands). Do NOT include measurements. Last line: 15-20 hashtags lowercase no-spaces — mix factual tags with trending aesthetic tags.",
       "- categoryEbay: full eBay category path (e.g. 'Women's Clothing > Tops > T-Shirts').",
@@ -176,7 +176,7 @@ function sanitizeListing<T extends {
 }>(l: T): T {
   let title = stripOldMoney(l.title).trim();
   if (title.length > 80) title = title.slice(0, 80).trim();
-  const descriptionEbay = truncateWords(stripOldMoney(l.descriptionEbay), 1000);
+  const descriptionEbay = stripOldMoney(l.descriptionEbay).slice(0, 1000);
   const descriptionPoshmark = truncateWords(stripOldMoney(l.descriptionPoshmark), 1000);
   const conditionDescription = stripOldMoney(l.conditionDescription).slice(0, 200);
   const keywords = l.keywords.map((k) => stripOldMoney(k).trim()).filter((k) => k && !/^old[\s-]?money$/i.test(k));
