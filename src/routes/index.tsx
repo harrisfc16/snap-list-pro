@@ -259,8 +259,7 @@ function ListFast() {
   };
 
   const sku = listing ? buildSku(listing.categoryCode, parseInt(skuNumber, 10) || 0) : "";
-  const itemNum = parseInt(skuNumber, 10) || 0;
-  const skuTag = listing ? `Item# ${itemNum} | SKU: ${sku}` : "";
+  const skuTag = listing ? `Item# ${sku}` : "";
   const ebayDescription = listing ? `${listing.descriptionEbay}\n\n${skuTag}` : "";
   const poshmarkDescription = listing ? `${listing.descriptionPoshmark}\n\n${skuTag}` : "";
 
