@@ -20,7 +20,7 @@ const InputSchema = z.object({
 });
 
 const ListingSchema = z.object({
-  categoryCode: z.string().describe("One of: TOP, BTM, DRESS, SHOE, BAG, ACC, OUTER, DENIM, ELEC, HOME, COLLECT, BEAUTY, TOY, BOOK, OTHER"),
+  categoryCode: z.string().describe("One of: TOP, BTM, DRESS, SHOE, BAG, PURSE, JEWEL, ACC, OUTER, DENIM, ELEC, HOME, COLLECT, BEAUTY, TOY, BOOK, OTHER"),
   title: z.string().describe("eBay title, max 80 characters"),
   itemSpecifics: z.record(z.string(), z.string()).describe("Key-value pairs like Brand, Size, Color, Material, Type, Model, Features. Only include fields you can determine."),
   descriptionEbay: z.string().describe("eBay description, 3-5 short paragraphs"),
