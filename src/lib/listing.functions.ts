@@ -96,14 +96,15 @@ export const generateListing = createServerFn({ method: "POST" })
     const model = gateway("google/gemini-3-flash-preview");
 
     const userText = [
-      "Generate a complete reseller listing for the item in the photos. Items may be clothing, shoes, bags, accessories, electronics, home goods, collectibles, beauty, toys, books, or other resale categories. Adapt your fields to the item type.",
+      "Generate a complete reseller listing for the item in the photos. Items may be clothing, shoes, bags, purses, jewelry, accessories, electronics, home goods, collectibles, beauty, toys, books, or other resale categories. Adapt your fields to the item type.",
       "",
       "Reading instructions:",
       "- Read brand, size, material from any tag/label photos.",
-      "- If a photo is labeled 'Measurements' or with a body measurement (Bust/Waist/Hips/Length/Sleeve/Inseam/Shoulders), read the tape measure value and incorporate it into the description and itemSpecifics where useful.",
+      "- NEVER include any measurements (chest, bust, waist, hips, length, sleeve, inseam, shoulders, rise, thigh, or any inches/cm value) in descriptionEbay, descriptionPoshmark, conditionDescription, or itemSpecifics. Do NOT tell the buyer to request measurements. Ignore any tape measure values entirely.",
       "- If a tag value is unreadable, OMIT that itemSpecifics field entirely and DO NOT mention it in either description. Never write 'Not visible', 'Unknown', '[placeholder]', or similar.",
       "- Analyze the photos VISUALLY — colors, style, fit, era, condition. Don't rely only on text inputs.",
       "- For non-clothing items, skip Size/Material/Department and instead populate Type/Brand/Model/Features/Color where they apply.",
+      "- BANNED phrase: never use 'old money' anywhere (title, keywords, descriptions, condition, hashtags). Pick a different aesthetic if it fits.",
       "",
       "User-provided fields (use as ground truth if present):",
       `Brand: ${data.brand || "(let AI read tag)"}`,
@@ -116,15 +117,15 @@ export const generateListing = createServerFn({ method: "POST" })
       ...data.photos.map((p, i) => `Photo ${i + 1}: ${p.label || "unlabeled"}`),
       "",
       "Requirements:",
-      "- categoryCode: pick ONE — TOP, BTM, DRESS, SHOE, BAG, ACC, OUTER, DENIM, ELEC (electronics), HOME (home goods), COLLECT (collectibles), BEAUTY, TOY, BOOK, OTHER.",
-      "- title: pack keywords aggressively. Target 78-80 chars, NEVER exceed 80. Use every available character. Order: Brand + Item Type + Model (if any) + Size + Color + 3-5 high-traffic search descriptors (style, fit, era, material, aesthetic, occasion). No filler words ('a', 'the', 'with'), no punctuation, no symbols. Maximize discoverability.",
+      "- categoryCode: pick ONE — TOP, BTM, DRESS, SHOE, BAG, PURSE (purses/handbags), JEWEL (jewelry), ACC, OUTER, DENIM, ELEC (electronics), HOME (home goods), COLLECT (collectibles), BEAUTY, TOY, BOOK, OTHER.",
+      "- title: pack keywords aggressively. Target 78-80 chars, NEVER exceed 80 characters (hard cap — count and shorten if needed). Order: Brand + Item Type + Model (if any) + Size + Color + 3-5 high-traffic search descriptors (style, fit, era, material, aesthetic, occasion). No filler words ('a', 'the', 'with'), no punctuation, no symbols. Maximize discoverability.",
       "- itemSpecifics: fill ONLY the fields you can actually determine; omit any you can't.",
-      "- descriptionEbay: structured & factual. 1-2 sentence hook PACKED with searchable terms, then bullet points for material, fit/size, condition, design features, then a closing styling/use note. Extremely keyword-dense — work in synonyms, brand associations, style descriptors, era tags, and buyer search terms naturally. After the final line, add a blank line then 'Keywords: ' followed by ALL keywords comma-separated. DO NOT mention shipping or returns.",
+      "- descriptionEbay: structured & factual, MAX 1000 words total (hard cap). 1-2 sentence hook PACKED with searchable terms, then bullet points for material, fit/size (WITHOUT numeric measurements), condition, design features, then a closing styling/use note. Extremely keyword-dense — work in synonyms, brand associations, style descriptors, era tags, and buyer search terms naturally. After the final line, add a blank line then 'Keywords: ' followed by ALL keywords comma-separated. DO NOT mention shipping, returns, or any measurements.",
       "- conditionDescription: MAX 200 characters. Honest, factual; note whether any wear/distressing is intentional or actual.",
-      "- descriptionPoshmark: casual, social, conversational AND keyword-dense. Energetic hook, then brand/size/material/condition/styling ideas (work in synonyms, aesthetics, occasions, comparable brands). Last line: 15-20 hashtags lowercase no-spaces — mix factual tags with trending aesthetic tags.",
+      "- descriptionPoshmark: casual, social, conversational AND keyword-dense, MAX 1000 words. Energetic hook, then brand/size/material/condition/styling ideas (work in synonyms, aesthetics, occasions, comparable brands). Do NOT include measurements. Last line: 15-20 hashtags lowercase no-spaces — mix factual tags with trending aesthetic tags.",
       "- categoryEbay: full eBay category path (e.g. 'Women's Clothing > Tops > T-Shirts').",
       "- categoryPoshmark: full Poshmark category path.",
-      "- keywords: 18-25 high-traffic search terms. Be aggressive — include brand, item type, size, color, material, style, era, fit, occasion, comparable/competitor brands, popular synonyms (e.g. 'sweatshirt' AND 'crewneck' AND 'pullover'), condition qualifiers (preloved, vintage, EUC, NWT where accurate), and trending aesthetic tags ONLY if they genuinely match: normcore, scandi girl, Y2K, quiet luxury, cottagecore, dark academia, indie sleaze, coastal grandmother, balletcore, gorpcore, old money, vintage, grunge, streetwear, techwear. Prioritize discoverability.",
+      "- keywords: 18-25 high-traffic search terms. Be aggressive — include brand, item type, size, color, material, style, era, fit, occasion, comparable/competitor brands, popular synonyms (e.g. 'sweatshirt' AND 'crewneck' AND 'pullover'), condition qualifiers (preloved, vintage, EUC, NWT where accurate), and trending aesthetic tags ONLY if they genuinely match: normcore, scandi girl, Y2K, quiet luxury, cottagecore, dark academia, indie sleaze, coastal grandmother, balletcore, gorpcore, vintage, grunge, streetwear, techwear. NEVER include 'old money'. Prioritize discoverability.",
       "- prices (USD whole numbers): priceEbayLow/priceEbayHigh = realistic Buy-It-Now range based on brand, condition, current resale market. pricePoshmark = single list price (typically slightly above eBay high to allow for offers). priceFloor = absolute don't-go-below. priceNote: 1-2 sentences on what's driving the price.",
     ].join("\n");
 
