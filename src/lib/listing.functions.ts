@@ -151,7 +151,8 @@ export const generateListing = createServerFn({ method: "POST" })
         ],
       });
 
-      const listing = ListingResultSchema.parse(parseJsonObject(result.text));
+      const parsed = ListingResultSchema.parse(parseJsonObject(result.text));
+      const listing = sanitizeListing(parsed);
       return { ok: true as const, listing };
     } catch (err) {
       console.error("generateListing failed", err);
@@ -160,6 +161,28 @@ export const generateListing = createServerFn({ method: "POST" })
   });
 
 export type Listing = z.infer<typeof ListingSchema>;
+
+function stripOldMoney(text: string): string {
+  return text.replace(/\bold[\s-]?money\b/gi, "").replace(/[ \t]{2,}/g, " ").replace(/,\s*,/g, ",");
+}
+function truncateWords(text: string, maxWords: number): string {
+  const words = text.split(/\s+/);
+  if (words.length <= maxWords) return text;
+  return words.slice(0, maxWords).join(" ");
+}
+function sanitizeListing<T extends {
+  title: string; descriptionEbay: string; descriptionPoshmark: string;
+  conditionDescription: string; keywords: string[]; priceNote: string;
+}>(l: T): T {
+  let title = stripOldMoney(l.title).trim();
+  if (title.length > 80) title = title.slice(0, 80).trim();
+  const descriptionEbay = truncateWords(stripOldMoney(l.descriptionEbay), 1000);
+  const descriptionPoshmark = truncateWords(stripOldMoney(l.descriptionPoshmark), 1000);
+  const conditionDescription = stripOldMoney(l.conditionDescription).slice(0, 200);
+  const keywords = l.keywords.map((k) => stripOldMoney(k).trim()).filter((k) => k && !/^old[\s-]?money$/i.test(k));
+  const priceNote = stripOldMoney(l.priceNote);
+  return { ...l, title, descriptionEbay, descriptionPoshmark, conditionDescription, keywords, priceNote };
+}
 
 export const analyzeUploadedPhotos = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
