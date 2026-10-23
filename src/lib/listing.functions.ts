@@ -3,6 +3,7 @@ import { generateText, Output } from "ai";
 import { z } from "zod";
 
 import { createLovableAiGatewayProvider } from "./ai-gateway.server";
+import { buildSku, cleanText, finalizeKeywords, formatDescription, normalizeColor, normalizeTitle, resolveCondition, validKeywords, withKeywordRecovery } from "./listing-rules";
 
 const PhotoSchema = z.object({
   dataUrl: z.string().min(20),
@@ -17,6 +18,8 @@ const InputSchema = z.object({
   notes: z.string().optional(),
   skuNumber: z.number().int().min(0).max(99999).optional(),
   itemType: z.string().optional(),
+  color: z.string().optional(),
+  listingDate: z.string().regex(/^\d{8}$/),
 });
 
 const ListingSchema = z.object({
@@ -25,6 +28,9 @@ const ListingSchema = z.object({
   itemSpecifics: z.record(z.string(), z.string()).describe("Key-value pairs like Brand, Size, Color, Material, Type, Model, Features. Only include fields you can determine."),
   descriptionEbay: z.string().describe("eBay description, 3-5 short paragraphs"),
   conditionDescription: z.string().describe("eBay condition description, max 200 chars, factual"),
+  sku: z.string(),
+  keywordsFallback: z.boolean(),
+  descriptionDepop: z.string(),
   descriptionPoshmark: z.string().describe("Poshmark description, friendlier tone, 2-4 short paragraphs"),
   categoryEbay: z.string().describe("Full eBay category path"),
   categoryPoshmark: z.string().describe("Full Poshmark category path"),
@@ -45,6 +51,12 @@ const ListingResultSchema = z.object({
   descriptionEbay: looseString,
   conditionDescription: looseString,
   descriptionPoshmark: looseString,
+  descriptionDepop: looseString,
+  retailTagsAttached: z.boolean().catch(false),
+  unwornWithoutTags: z.boolean().catch(false),
+  visibleFlaw: z.boolean().catch(false),
+  prominentColorCount: z.coerce.number().catch(0),
+  multicolorPattern: z.boolean().catch(false),
   categoryEbay: looseString,
   categoryPoshmark: looseString,
   keywords: z.array(z.coerce.string()).catch([]),
@@ -62,6 +74,10 @@ const DetectionResultSchema = z.object({
   color: looseString,
   condition: looseString,
   itemType: looseString,
+  retailTagsAttached: z.boolean().catch(false),
+  visibleFlaw: z.boolean().catch(false),
+  prominentColorCount: z.coerce.number().catch(0),
+  multicolorPattern: z.boolean().catch(false),
 });
 
 const EMPTY_DETECTION = { photos: [], brand: "", size: "", color: "", condition: "", itemType: "" };
@@ -89,7 +105,7 @@ function parseJsonObject(text: string): unknown {
 export const generateListing = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => InputSchema.parse(input))
   .handler(async ({ data }) => {
-    const key = process.env.LOVABLE_API_KEY;
+    const key = process.env["LOVABLE_API_KEY"];
     if (!key) throw new Error("Missing LOVABLE_API_KEY");
 
     const gateway = createLovableAiGatewayProvider(key);
@@ -125,11 +141,23 @@ export const generateListing = createServerFn({ method: "POST" })
       "- descriptionPoshmark: casual, social, conversational AND keyword-dense, MAX 1000 words. Energetic hook, then brand/size/material/condition/styling ideas (work in synonyms, aesthetics, occasions, comparable brands). Do NOT include measurements. Last line: 15-20 hashtags lowercase no-spaces — mix factual tags with trending aesthetic tags.",
       "- categoryEbay: full eBay category path (e.g. 'Women's Clothing > Tops > T-Shirts').",
       "- categoryPoshmark: full Poshmark category path.",
-      "- keywords: 18-25 high-traffic search terms. Be aggressive — include brand, item type, size, color, material, style, era, fit, occasion, comparable/competitor brands, popular synonyms (e.g. 'sweatshirt' AND 'crewneck' AND 'pullover'), condition qualifiers (preloved, vintage, EUC, NWT where accurate), and trending aesthetic tags ONLY if they genuinely match: normcore, scandi girl, Y2K, quiet luxury, cottagecore, dark academia, indie sleaze, coastal grandmother, balletcore, gorpcore, vintage, grunge, streetwear, techwear. NEVER include 'old money'. Prioritize discoverability.",
+      "- keywords: up to 35 high-traffic search terms. Be aggressive — include brand, item type, size, color, material, style, era, fit, occasion, comparable/competitor brands, popular synonyms (e.g. 'sweatshirt' AND 'crewneck' AND 'pullover'), condition qualifiers (preloved, vintage, EUC, NWT where accurate), and trending aesthetic tags ONLY if they genuinely match: normcore, scandi girl, Y2K, quiet luxury, cottagecore, dark academia, indie sleaze, coastal grandmother, balletcore, gorpcore, vintage, grunge, streetwear, techwear. NEVER include 'old money'. Prioritize discoverability.",
       "- prices (USD whole numbers): priceEbayLow/priceEbayHigh = realistic Buy-It-Now range based on brand, condition, current resale market. pricePoshmark = single list price (typically slightly above eBay high to allow for offers). priceFloor = absolute don't-go-below. priceNote: 1-2 sentences on what's driving the price.",
+      "",
+      "The following rules override earlier style/condition/keyword instructions:",
+      "- descriptionEbay, descriptionPoshmark, and descriptionDepop must start with the EXACT same title as the title field, then a blank line, then concise factual details. Never open with Elevate your wardrobe, Step into, Introducing, Stunning, or Sophisticated. No emoji or generic promotional hooks.",
+      "- Depop: short factual material/fit/design details, condition, item number added by the app, and up to five relevant hashtags at the end. Include measurements ONLY if explicitly provided in Notes, never inferred from photos. eBay and Poshmark still forbid all measurements and requests for measurements.",
+      "- retailTagsAttached: boolean, true ONLY when ORIGINAL RETAIL tags are clearly still attached in the photos. A sewn-in brand/size/care tag does NOT qualify. unwornWithoutTags: boolean, true only when visibly unworn and no attached retail tags.",
+      "- visibleFlaw: boolean, true ONLY for a clear flaw in photos. Default condition Excellent (pre-owned), or New with tags if attached retail tags are visible; lower only for clear flaws or Notes. Never assume wear because an item is pre-owned. Describe condition accordingly.",
+      "- Add NWT to title and descriptions and keywords ONLY when retailTagsAttached is true. NWOT ONLY if visibly unworn and tags absent. Do not assume newness from user condition alone.",
+      "- prominentColorCount: number of prominent colors. multicolorPattern: boolean. Three or more prominent colors OR multicolor print/pattern => Color field and itemSpecifics Color MUST be Multicolor. Individual colors may appear in descriptions and keywords.",
+      `Color supplied by user: ${data.color || "(detect from photos)"}`,
+      "- keywords is REQUIRED: a nonempty JSON array of strings, up to 35, ordered most relevant first. Include known brand, specific item type, color, size, style, fit and fabric. No irrelevant comparable brands or keyword stuffing. Use only terms actually supported by photos/tags/notes.",
+      "- Prefer accurate terms from: boho, cottagecore, Y2K, minimalist, quiet luxury, streetwear, scandi, coastal grandmother, preppy, vintage, retro, gorpcore, athleisure, utility, western, academia, grunge, romantic, clean girl, barbiecore, high rise, wide leg, oversized, relaxed fit, cropped, midi, maxi, bodycon, pleated, ruched, wrap, asymmetrical, tailored, flared, empire waist, off shoulder, sleeveless, babydoll, slip, paperbag waist, euro summer, resortwear, festival, vacation, date night, workwear, office casual, capsule wardrobe, loungewear, activewear, wedding guest, brunch outfit, cozy, fall fashion, winter wear, travel style, everyday, night out, poolside, transitional, linen, silk, cashmere, leather, denim, cotton, ribbed, lace, satin, velvet, floral, gingham, striped, polka dot, animal print, plaid, eyelet, distressed, sheer, knit, lightweight, breathable, soft, structured, flowy, stretch, layered, versatile, timeless, comfortable, NWT, NWOT, indie, pastel, neon, neutral, earthy, jewel tones, tie dye, ombre, colorblock, monochrome, dainty, chunky, slouchy, fitted, boxy, draped, straight leg, bootcut, bell bottom, skinny, low rise, mid rise, ankle crop, raw hem, frayed, acid wash, light wash, dark wash, stonewash, vegan leather, faux fur, sherpa, fleece, corduroy, tweed, boucle, chiffon, tulle, sequins, glitter, metallic, embroidered, beaded, appliqued, smocked, shirred, ribbed knit, cable knit, pointelle, waffle knit, thermal, quick dry, moisture wicking, compression, UPF, seamless, reversible, insulated, waterproof, windbreaker, anorak, shacket, duster, trench, moto, peplum, tunic, halter, racerback, one shoulder, strapless, tube top, corset, bustier, bralette, bodysuit, romper, jumpsuit, overalls, coveralls, dungarees, pinafore, skort, bermuda, capri, cropped flare, gaucho, culottes, tiered, ruffled, scalloped, fringe, tassel, lace up, button down, zip up, deadstock.",
     ].join("\n");
 
     try {
+      const request = async () => {
       const result = await generateText({
         model,
         maxRetries: 0,
@@ -140,7 +168,7 @@ export const generateListing = createServerFn({ method: "POST" })
             content: [
               {
                 type: "text",
-                text: `${userText}\n\nReturn ONLY a valid JSON object with keys: categoryCode, title, itemSpecifics, descriptionEbay, conditionDescription, descriptionPoshmark, categoryEbay, categoryPoshmark, keywords, priceEbayLow, priceEbayHigh, pricePoshmark, priceFloor, priceNote. Do not wrap in markdown.`,
+                text: `${userText}\n\nReturn ONLY a valid JSON object with keys: categoryCode, title, itemSpecifics, descriptionEbay, conditionDescription, descriptionPoshmark, categoryEbay, categoryPoshmark, keywords, priceEbayLow, priceEbayHigh, pricePoshmark, priceFloor, priceNote, descriptionDepop, retailTagsAttached, unwornWithoutTags, visibleFlaw, prominentColorCount, multicolorPattern. Do not wrap in markdown.`,
               },
               ...data.photos.map((p) => ({
                 type: "image" as const,
@@ -151,8 +179,36 @@ export const generateListing = createServerFn({ method: "POST" })
         ],
       });
 
-      const parsed = ListingResultSchema.parse(parseJsonObject(result.text));
-      const listing = sanitizeListing(parsed);
+      let raw: unknown;
+      try { raw = parseJsonObject(result.text); } catch { raw = {}; }
+      const parsed = ListingResultSchema.parse(raw);
+      const rawKeywords = raw && typeof raw === "object" && "keywords" in raw ? raw.keywords : undefined;
+      return { ...parsed, keywords: validKeywords(rawKeywords) ? rawKeywords : [] };
+      };
+      const parsed = await withKeywordRecovery(request, (draft) => finalizeKeywords([], {
+        brand: data.brand, itemType: data.itemType, color: data.color, size: data.size,
+        title: draft.title, itemSpecifics: draft.itemSpecifics, tagsAttached: draft.retailTagsAttached,
+      }, true));
+      if (!parsed.title.trim()) return { ok: false as const, error: "AI returned an incomplete listing. Please generate again." };
+      const sanitized = sanitizeListing(parsed);
+      const tagsAttached = parsed.retailTagsAttached;
+      const title = normalizeTitle(sanitized.title, tagsAttached);
+      const sku = buildSku(parsed.categoryCode, data.skuNumber ?? 1, data.listingDate);
+      const itemSpecifics = Object.fromEntries(Object.entries(parsed.itemSpecifics)
+        .filter(([key, value]) => !/measurement|chest|bust|waist|hips|inseam|sleeve length|length/i.test(key) && !/unknown|not visible|placeholder/i.test(value))
+        .map(([key, value]) => [cleanText(key), cleanText(value)]));
+      const detectedColor = normalizeColor(data.color || itemSpecifics.Color || itemSpecifics.color || "", parsed.prominentColorCount, parsed.multicolorPattern);
+      if (detectedColor) { delete itemSpecifics.color; itemSpecifics.Color = detectedColor; }
+      const keywords = finalizeKeywords(sanitized.keywords, {
+        brand: data.brand, itemType: data.itemType, color: detectedColor, size: data.size,
+        title, itemSpecifics, tagsAttached, unwornWithoutTags: parsed.unwornWithoutTags,
+      }, parsed.keywordsFallback);
+      const listing = {
+        ...sanitized, title, sku, itemSpecifics, keywords,
+        descriptionEbay: formatDescription("ebay", sanitized.descriptionEbay, title, sku, keywords, tagsAttached),
+        descriptionPoshmark: formatDescription("poshmark", sanitized.descriptionPoshmark, title, sku, keywords, tagsAttached),
+        descriptionDepop: formatDescription("depop", sanitized.descriptionDepop, title, sku, keywords, tagsAttached),
+      };
       return { ok: true as const, listing };
     } catch (err) {
       console.error("generateListing failed", err);
@@ -189,7 +245,7 @@ export const analyzeUploadedPhotos = createServerFn({ method: "POST" })
     z.object({ photos: z.array(z.string().min(20)).min(1).max(8) }).parse(input),
   )
   .handler(async ({ data }) => {
-    const key = process.env.LOVABLE_API_KEY;
+    const key = process.env["LOVABLE_API_KEY"];
     if (!key) throw new Error("Missing LOVABLE_API_KEY");
 
     const gateway = createLovableAiGatewayProvider(key);
@@ -211,8 +267,8 @@ export const analyzeUploadedPhotos = createServerFn({ method: "POST" })
                   "For every photo, return its 1-based index and the best label from this exact list: Front, Back, Side, Detail, Tag/Label, Flaw, Styled / On Model, Measurements, Measure — Bust/Chest, Measure — Waist, Measure — Hips, Measure — Length, Measure — Sleeve, Measure — Inseam, Measure — Shoulders, Measure — Rise, Measure — Thigh, Other.",
                   "If you see ANY measuring tape in a photo — especially pink, yellow, white, or flexible tailor tape — label that photo Measurements unless the measurement type is obvious, then use the specific Measure label.",
                   "Extract brand, size, color, condition, and itemType from the photos. ALWAYS attempt condition — do not leave it empty unless the photos are unreadable. Assess visually: new-with-tags = original tags attached and item looks pristine/unworn; new-without-tags = pristine/unworn but no tags; excellent = near-perfect with no visible wear, pills, fading, or stains; good = gently used, minor wear, light pilling, no major flaws; fair = visible wear, stains, holes, fading, or heavy use.",
-                  "itemType MUST be EXACTLY one of: Clothing, Shoes, Bags, Accessories, Electronics, Home, Collectibles, Beauty, Toys, Books, Other.",
-                  "condition MUST be EXACTLY one of (case-sensitive, exact spelling): New with tags, New without tags, Excellent, Good, Fair. If a tag photo clearly shows NWT/NWOT/EUC, still map it to the closest allowed value. Default to 'Good' if the item looks used but you cannot tell more.",
+                  "itemType MUST be EXACTLY one of: Clothing, Shoes, Bags, Purses, Jewelry, Accessories, Electronics, Home, Collectibles, Beauty, Toys, Books, Other.",
+                  "condition MUST be EXACTLY one of (case-sensitive, exact spelling): New with tags, New without tags, Excellent, Good, Fair. If a tag photo clearly shows NWT/NWOT/EUC, still map it to the closest allowed value. Default to 'Excellent' unless clear flaws justify a lower condition.",
                 ].join("\n"),
               },
               ...data.photos.map((url) => ({ type: "image" as const, image: url })),
@@ -234,7 +290,7 @@ const PhotoLabels = ["Front", "Back", "Detail", "Tag/Label", "Measurements", "Ot
 export const guessPhotoLabel = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ dataUrl: z.string().min(20) }).parse(input))
   .handler(async ({ data }) => {
-    const key = process.env.LOVABLE_API_KEY;
+    const key = process.env["LOVABLE_API_KEY"];
     if (!key) throw new Error("Missing LOVABLE_API_KEY");
 
     const gateway = createLovableAiGatewayProvider(key);
@@ -282,7 +338,7 @@ export const guessItemDetails = createServerFn({ method: "POST" })
     z.object({ photos: z.array(z.string().min(20)).min(1).max(8) }).parse(input),
   )
   .handler(async ({ data }) => {
-    const key = process.env.LOVABLE_API_KEY;
+    const key = process.env["LOVABLE_API_KEY"];
     if (!key) throw new Error("Missing LOVABLE_API_KEY");
 
     const gateway = createLovableAiGatewayProvider(key);
