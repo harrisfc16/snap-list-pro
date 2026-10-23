@@ -43,7 +43,7 @@ export function validKeywords(value: unknown): value is string[] {
 export async function withKeywordRecovery<T extends { keywords?: unknown }>(
   request: () => Promise<T>,
   fallback: (listing: T) => string[],
-): Promise<T & { keywords: string[]; keywordsFallback: boolean }> {
+): Promise<Omit<T, "keywords"> & { keywords: string[]; keywordsFallback: boolean }> {
   let listing = await request();
   if (!validKeywords(listing.keywords)) listing = await request();
   const keywordsFallback = !validKeywords(listing.keywords);
