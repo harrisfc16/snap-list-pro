@@ -2,16 +2,20 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { DEFAULT_CONDITION, resolveCondition } from "@/lib/listing-rules";
 
 import { analyzeUploadedPhotos, generateListing, type Listing } from "@/lib/listing.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "ListFast — AI listings for eBay & Poshmark resellers" },
-      { name: "description", content: "Upload photos, get a full eBay + Poshmark listing: title, specifics, descriptions, keywords, category, price." },
+      { title: "ListFast — eBay, Poshmark & Depop listings" },
+      { name: "description", content: "Turn resale photos into title-first eBay, Poshmark and Depop descriptions, item specifics, keywords and price suggestions." },
       { property: "og:title", content: "ListFast" },
-      { property: "og:description", content: "AI listing generator for clothing resellers." },
+      { property: "og:description", content: "Photo-to-listing assistant for eBay, Poshmark and Depop resellers." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: ListFast,
@@ -136,7 +140,8 @@ function ListFast() {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [brand, setBrand] = useState("");
   const [size, setSize] = useState("");
-  const [condition, setCondition] = useState("");
+  const [condition, setCondition] = useState<string>(DEFAULT_CONDITION);
+  const conditionEdited = useRef(false);
   const [notes, setNotes] = useState("");
   const [skuNumber, setSkuNumber] = useState<string>("1");
   const [color, setColor] = useState("");
@@ -196,9 +201,9 @@ function ListFast() {
         if (res.brand && !brand) { setBrand(res.brand); flags.brand = true; }
         if (res.size && !size) { setSize(res.size); flags.size = true; }
         if (res.color && !color) { setColor(res.color); flags.color = true; }
-        if (!condition) {
+        if (!conditionEdited.current) {
           const match = matchCondition(res.condition);
-          if (match) { setCondition(match); flags.condition = true; }
+          if (match) { setCondition(resolveCondition(res.retailTagsAttached, res.visibleFlaw, match, notes)); flags.condition = true; }
         }
         if (res.itemType && !itemType) {
           const match = ITEM_TYPES.find((t) => t.toLowerCase() === res.itemType.toLowerCase().trim());
@@ -234,6 +239,8 @@ function ListFast() {
           brand: brand || undefined,
           size: SIZED_TYPES.has(itemType) || !itemType ? size || undefined : undefined,
           condition: condition || undefined,
+          color: color || undefined,
+          listingDate: localListingDate(),
           notes: [color ? `Color: ${color}` : "", notes].filter(Boolean).join(". ") || undefined,
           skuNumber: skuN,
           itemType: itemType || undefined,
@@ -258,10 +265,11 @@ function ListFast() {
     toast.success(`${what} copied! 📋`);
   };
 
-  const sku = listing ? buildSku(listing.categoryCode, parseInt(skuNumber, 10) || 0) : "";
+  const sku = listing?.sku ?? "";
   const skuTag = listing ? `Item# ${sku}` : "";
-  const ebayDescription = listing ? `${listing.descriptionEbay}\n\n${skuTag}` : "";
-  const poshmarkDescription = listing ? `${listing.descriptionPoshmark}\n\n${skuTag}` : "";
+  const ebayDescription = listing?.descriptionEbay ?? "";
+  const poshmarkDescription = listing?.descriptionPoshmark ?? "";
+  const depopDescription = listing?.descriptionDepop ?? "";
 
   const copyAll = () => {
     if (!listing) return;
@@ -270,7 +278,7 @@ function ListFast() {
       .map(([k, v]) => `${k}: ${v}`)
       .join("\n");
     const text = [
-      `SKU: ${sku}`,
+      skuTag,
       ``,
       `TITLE (${listing.title.length}/80):`,
       listing.title,
@@ -286,6 +294,9 @@ function ListFast() {
       ``,
       `POSHMARK DESCRIPTION:`,
       poshmarkDescription,
+      ``,
+      `DEPOP DESCRIPTION:`,
+      depopDescription,
       ``,
       `KEYWORDS:`,
       listing.keywords.join(", "),
@@ -351,14 +362,14 @@ function ListFast() {
                     alt="upload"
                     className="w-full aspect-square object-cover rounded-lg border border-border"
                   />
-                  <button
+                  <Button variant="ghost"
                     type="button"
                     onClick={() => setPhotos((ps) => ps.filter((x) => x.id !== p.id))}
                     className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-foreground/80 text-background text-xs hover:bg-foreground transition"
                     aria-label="Remove photo"
                   >
                     ×
-                  </button>
+                  </Button>
                   <select
                     value={p.label}
                     onChange={(e) =>
@@ -431,7 +442,7 @@ function ListFast() {
             <Field label="Condition" aiNote={aiFields.condition}>
               <select
                 value={condition}
-                onChange={(e) => { setCondition(e.target.value); setAiFields((f) => ({ ...f, condition: false })); }}
+                onChange={(e) => { conditionEdited.current = true; setCondition(e.target.value); setAiFields((f) => ({ ...f, condition: false })); }}
                 className="input"
               >
                 <option value="">Select…</option>
@@ -462,7 +473,7 @@ function ListFast() {
         </section>
 
         {/* Generate */}
-        <button
+        <Button variant="ghost"
           onClick={generate}
           disabled={loading}
           className="w-full py-5 rounded-full bg-primary text-primary-foreground text-sm uppercase tracking-[0.25em] font-light hover:opacity-90 active:scale-[0.99] transition disabled:opacity-60 disabled:cursor-not-allowed"
@@ -472,7 +483,7 @@ function ListFast() {
           ) : (
             <>Generate Listing</>
           )}
-        </button>
+        </Button>
         {loading && (
           <p className="text-center text-xs text-muted-foreground font-light tracking-wide -mt-4">
             This can take 15–25 seconds — please hold on.
@@ -483,16 +494,16 @@ function ListFast() {
         {listing && (
           <div className="space-y-6 pt-2">
             <div className="flex justify-end">
-              <button
+              <Button variant="ghost"
                 onClick={copyAll}
                 className="px-5 py-2 rounded-full bg-primary text-primary-foreground text-xs uppercase tracking-[0.2em] font-light hover:opacity-90 transition"
               >
                 Copy All
-              </button>
+              </Button>
             </div>
 
-            <ResultCard title="SKU" accent="sage" onCopy={() => copy(sku, "SKU")}>
-              <p className="text-lg font-mono tracking-wide">{sku}</p>
+            <ResultCard title="SKU" accent="sage" onCopy={() => copy(skuTag, "SKU")}>
+              <p className="text-lg font-mono tracking-wide">{skuTag}</p>
             </ResultCard>
 
             <ResultCard title="eBay Title" accent="peach" onCopy={() => copy(listing.title, "Title")}>
@@ -533,6 +544,7 @@ function ListFast() {
               onCopy={() => copy(ebayDescription, "eBay description")}
             >
               <div className="whitespace-pre-wrap leading-relaxed text-sm font-light">{ebayDescription}</div>
+              <p className="text-xs mt-2 text-muted-foreground">{ebayDescription.length} / 1000 characters</p>
             </ResultCard>
 
             <ResultCard
@@ -554,11 +566,16 @@ function ListFast() {
               <div className="whitespace-pre-wrap leading-relaxed text-sm font-light">{poshmarkDescription}</div>
             </ResultCard>
 
+            <ResultCard title="Depop Description" accent="peach" onCopy={() => copy(depopDescription, "Depop description")}>
+              <div className="whitespace-pre-wrap leading-relaxed text-sm font-light">{depopDescription}</div>
+            </ResultCard>
+
             <ResultCard
               title="Keywords"
               accent="sage"
               onCopy={() => copy(listing.keywords.join(", "), "Keywords")}
             >
+              {listing.keywordsFallback && <p className="text-xs text-muted-foreground mb-3">Keywords built from your item details.</p>}
               <div className="flex flex-wrap gap-2">
                 {listing.keywords.map((k) => (
                   <span
@@ -633,12 +650,9 @@ function ListFast() {
   );
 }
 
-function buildSku(categoryCode: string, num: number): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}${m}${day}-${categoryCode}-${String(num).padStart(3, "0")}`;
+function localListingDate(): string {
+  const date = new Date();
+  return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function PriceTile({ label, value }: { label: string; value: string }) {
@@ -684,12 +698,12 @@ function ResultCard({
     >
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-serif text-xl font-light tracking-wide">{title}</h3>
-        <button
+        <Button variant="ghost"
           onClick={onCopy}
           className="text-xs uppercase tracking-[0.18em] text-muted-foreground hover:text-foreground transition font-light"
         >
           Copy
-        </button>
+        </Button>
       </div>
       {children}
     </section>
