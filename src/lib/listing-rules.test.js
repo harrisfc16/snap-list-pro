@@ -26,7 +26,7 @@ describe("listing requirements", () => {
     expect(normalizeTitle("Acme dress", true)).toBe("Acme dress NWT");
   });
   test("all descriptions share a title-first opening and exact item number", () => {
-    for (const platform of ["ebay", "poshmark", "depop"] as const) {
+    for (const platform of ["ebay", "poshmark", "depop"]) {
       const text = formatDescription(platform, "Cotton wide leg trousers.", "Acme Trousers 10 Sage", "20260614-DRESS-001", ["cotton"], false);
       expect(text.startsWith("Acme Trousers 10 Sage\n\n")).toBe(true);
       expect(text).toContain("Item# 20260614-DRESS-001");
@@ -39,7 +39,7 @@ describe("listing requirements", () => {
     expect(formatDescription("poshmark", "cotton ".repeat(2000), "Acme Dress", "20260614-DRESS-001", ["cotton"], false).split(/\s+/).length).toBeLessThanOrEqual(1000);
   });
   test("only Depop allows explicitly supplied measurements", () => {
-    for (const platform of ["ebay", "poshmark"] as const) expect(formatDescription(platform, "Bust: 20 inches\nCotton fabric", "Acme Dress", "20260614-DRESS-001", [], false)).not.toContain("20 inches");
+    for (const platform of ["ebay", "poshmark"]) expect(formatDescription(platform, "Bust: 20 inches\nCotton fabric", "Acme Dress", "20260614-DRESS-001", [], false)).not.toContain("20 inches");
     expect(formatDescription("depop", "Bust: 20 inches", "Acme Dress", "20260614-DRESS-001", [], false)).toContain("20 inches");
   });
   test("Depop ends with no more than five hashtags", () => {
