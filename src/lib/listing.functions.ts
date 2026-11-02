@@ -21,7 +21,7 @@ const InputSchema = z.object({
   color: z.string().optional(),
   includeItemNumber: z.boolean().default(true),
   consignment: z.boolean().default(false),
-  consignerName: z.string().max(120).default(""),
+  consignerName: z.string().max(120).refine(name => !/[\r\n]/.test(name), "Use a single-line consigner name").default(""),
   skipStyleTags: z.boolean().default(false),
   listingDate: z.string().regex(/^\d{8}$/),
 });
@@ -174,7 +174,10 @@ export const generateListing = createServerFn({ method: "POST" })
       if (!parsed.title.trim()) return { ok: false as const, error: "AI returned an incomplete listing. Please generate again." };
       const clean = (value: string) => outputText(value, data.skipStyleTags);
       const tagsAttached = parsed.retailTagsAttached;
-      const title = normalizeTitle(clean(parsed.title), tagsAttached);
+      const suppliedSize = data.size || parsed.size || parsed.itemSpecifics.Size || "";
+      let rawTitle = clean(parsed.title);
+      if (suppliedSize && !/\bsize\b/i.test(rawTitle)) rawTitle = rawTitle.replace(suppliedSize, `Size ${suppliedSize}`);
+      const title = normalizeTitle(rawTitle, tagsAttached);
       const sku = buildSku(parsed.categoryCode, data.skuNumber ?? 1, data.listingDate);
       const itemNumber = itemNumberOutput(data.includeItemNumber, data.consignment, data.consignerName, sku);
       const itemSpecifics = Object.fromEntries(Object.entries(parsed.itemSpecifics)

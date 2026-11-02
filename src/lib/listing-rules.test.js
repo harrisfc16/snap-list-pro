@@ -67,6 +67,7 @@ describe("listing requirements", () => {
     expect(tags).toEqual(["#acme", "#pants", "#green", "#cotton", "#wideleg"]);
     expect(tags).not.toContain("#75");
     expect(tags).not.toContain("#btm");
+    expect(descriptionHashtags({...facts, fit: "Unknown", material: "Cotton"})).not.toContain("#unknown");
   });
   test("skip style tags removes all selected aesthetics across text and keywords", () => {
     expect(outputText("Vintage y2k quiet luxury green cotton", true)).toBe("green cotton");

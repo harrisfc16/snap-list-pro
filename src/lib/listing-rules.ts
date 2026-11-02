@@ -78,6 +78,7 @@ export function finalizeKeywords(raw: string[], fields: { brand?: string; itemTy
   const unique = new Map<string, string>();
   for (const candidate of candidates) {
     if (!candidate || /\bold[\s-]?money\b/i.test(candidate)) continue;
+    if (/\b(?:unknown|not visible|placeholder)\b/i.test(candidate)) continue;
     for (const term of outputText(candidate, fields.skipStyleTags).replace(/#/g, "").split(",")) {
       const k = term.trim();
       if (!k || SKU_CATEGORIES.includes(k.toUpperCase() as typeof SKU_CATEGORIES[number]) || (!fields.tagsAttached && /\bNWT\b/i.test(k)) || (!fields.unwornWithoutTags && /\bNWOT\b/i.test(k))) continue;
@@ -105,7 +106,7 @@ export function descriptionHashtags(facts: DescriptionFacts): string[] {
   const hashtag = (value: string) => outputText(value, facts.skipStyleTags).replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
   const core = [facts.brand, facts.itemType, facts.color].map(hashtag).filter(Boolean);
   const terms = [facts.material, facts.fit, facts.use, ...facts.features, ...facts.keywords];
-  const candidates = terms.filter(term => term && term !== facts.size && !/\d|\b(?:size|new with tags|excellent|good|fair)\b/i.test(term))
+  const candidates = terms.filter(term => term && term !== facts.size && !/\d|\b(?:size|unknown|not visible|placeholder|new with tags|excellent|good|fair)\b/i.test(term))
     .map(hashtag).filter(term => term && !SKU_CATEGORIES.some(code => code.toLowerCase() === term) && !core.includes(term));
   // Use item-derived phrases if the model supplies fewer than two descriptors; never invent a style or brand.
   const fallbacks = [facts.color + facts.itemType, facts.brand + facts.itemType, facts.material + facts.itemType, facts.use + facts.itemType].map(hashtag);
