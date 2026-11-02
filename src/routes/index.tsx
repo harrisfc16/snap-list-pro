@@ -3,15 +3,15 @@ import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { DEFAULT_CONDITION, resolveCondition } from "@/lib/listing-rules";
+import { DEFAULT_CONDITION, resolveCondition, BASIC_COLORS, normalizeColor } from "@/lib/listing-rules";
 
 import { analyzeUploadedPhotos, generateListing, type Listing } from "@/lib/listing.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "ListFast — eBay, Poshmark & Depop listings" },
-      { name: "description", content: "Turn resale photos into title-first eBay, Poshmark and Depop descriptions, item specifics, keywords and price suggestions." },
+      { title: "ListFast — Cross-platform resale listings" },
+      { name: "description", content: "Turn resale photos into one description for eBay, Poshmark, Depop and Mercari, with keywords and price suggestions." },
       { property: "og:title", content: "ListFast" },
       { property: "og:description", content: "Photo-to-listing assistant for eBay, Poshmark and Depop resellers." },
       { property: "og:type", content: "website" },
@@ -46,7 +46,7 @@ const LABEL_GROUPS: { group: string; options: string[] }[] = [
 ];
 const ALL_LABELS = LABEL_GROUPS.flatMap((g) => g.options);
 const ORDER_DEFAULTS = ["Front", "Back", "Detail", "Tag/Label", "Detail", "Detail", "Measurements", "Other"];
-const CONDITIONS = ["New with tags", "New without tags", "Excellent", "Good", "Fair"];
+const CONDITIONS = ["New with tags", "New in box", "New without tags", "Excellent", "Good", "Fair"];
 const ITEM_TYPES = ["Clothing", "Shoes", "Bags", "Purses", "Jewelry", "Accessories", "Electronics", "Home", "Collectibles", "Beauty", "Toys", "Books", "Other"];
 const SIZED_TYPES = new Set(["Clothing", "Shoes"]);
 const MEASURABLE_TYPES = new Set(["Clothing"]);
@@ -76,6 +76,7 @@ function matchCondition(raw: string | undefined): string | null {
   if (!text) return null;
   const aliasMap: Record<string, string> = {
     "new with tags": "New with tags",
+    "new in box": "New in box",
     "nwt": "New with tags",
     "new w/ tags": "New with tags",
     "new with tag": "New with tags",
@@ -143,6 +144,10 @@ function ListFast() {
   const [condition, setCondition] = useState<string>(DEFAULT_CONDITION);
   const conditionEdited = useRef(false);
   const [notes, setNotes] = useState("");
+  const [includeItemNumber, setIncludeItemNumber] = useState(true);
+  const [consignment, setConsignment] = useState(false);
+  const [consignerName, setConsignerName] = useState("");
+  const [skipStyleTags, setSkipStyleTags] = useState(false);
   const [skuNumber, setSkuNumber] = useState<string>("1");
   const [color, setColor] = useState("");
   const [itemType, setItemType] = useState<string>("");
@@ -200,10 +205,10 @@ function ListFast() {
         const flags: typeof aiFields = {};
         if (res.brand && !brand) { setBrand(res.brand); flags.brand = true; }
         if (res.size && !size) { setSize(res.size); flags.size = true; }
-        if (res.color && !color) { setColor(res.color); flags.color = true; }
+        if (res.color && !color) { setColor(normalizeColor(res.color)); flags.color = true; }
         if (!conditionEdited.current) {
           const match = matchCondition(res.condition);
-          if (match) { setCondition(resolveCondition(res.retailTagsAttached, res.visibleFlaw, match, notes)); flags.condition = true; }
+          if (match) { setCondition(resolveCondition(res.retailTagsAttached, res.visibleFlaw, match, notes, res.unusedRetailPackaging, res.itemType)); flags.condition = true; }
         }
         if (res.itemType && !itemType) {
           const match = ITEM_TYPES.find((t) => t.toLowerCase() === res.itemType.toLowerCase().trim());
@@ -226,10 +231,11 @@ function ListFast() {
       return;
     }
     const skuN = parseInt(skuNumber, 10);
-    if (!Number.isFinite(skuN) || skuN < 0) {
+    if (includeItemNumber && !consignment && (!Number.isFinite(skuN) || skuN < 0)) {
       toast.error("Enter a SKU number (e.g. 57)");
       return;
     }
+    if (consignment && !consignerName.trim()) { toast.error("Enter the consigner’s name"); return; }
     setLoading(true);
     setListing(null);
     try {
@@ -242,7 +248,8 @@ function ListFast() {
           color: color || undefined,
           listingDate: localListingDate(),
           notes: [color ? `Color: ${color}` : "", notes].filter(Boolean).join(". ") || undefined,
-          skuNumber: skuN,
+          skuNumber: Number.isFinite(skuN) ? skuN : 1,
+          includeItemNumber, consignment, consignerName, skipStyleTags,
           itemType: itemType || undefined,
         },
       });
@@ -265,11 +272,8 @@ function ListFast() {
     toast.success(`${what} copied! 📋`);
   };
 
-  const sku = listing?.sku ?? "";
-  const skuTag = listing ? `Item# ${sku}` : "";
-  const ebayDescription = listing?.descriptionEbay ?? "";
-  const poshmarkDescription = listing?.descriptionPoshmark ?? "";
-  const depopDescription = listing?.descriptionDepop ?? "";
+  const skuTag = listing?.itemNumber ?? "";
+  const description = listing?.description ?? "";
 
   const copyAll = () => {
     if (!listing) return;
@@ -286,17 +290,11 @@ function ListFast() {
       `ITEM SPECIFICS:`,
       specifics,
       ``,
-      `EBAY DESCRIPTION:`,
-      ebayDescription,
+      `DESCRIPTION:`,
+      description,
       ``,
       `CONDITION DESCRIPTION (${listing.conditionDescription.length}/200):`,
       listing.conditionDescription,
-      ``,
-      `POSHMARK DESCRIPTION:`,
-      poshmarkDescription,
-      ``,
-      `DEPOP DESCRIPTION:`,
-      depopDescription,
       ``,
       `KEYWORDS:`,
       listing.keywords.join(", "),
@@ -305,8 +303,7 @@ function ListFast() {
       `POSHMARK CATEGORY: ${listing.categoryPoshmark}`,
       ``,
       `PRICES:`,
-      `eBay BIN: $${listing.priceEbayLow}–$${listing.priceEbayHigh}`,
-      `Poshmark: $${listing.pricePoshmark}`,
+      `Suggested list price: $${listing.priceList}`,
       `Floor: $${listing.priceFloor}`,
       listing.priceNote,
     ].join("\n");
@@ -432,12 +429,10 @@ function ListFast() {
                 />
             </Field>
             <Field label="Color" aiNote={aiFields.color}>
-              <input
-                value={color}
-                onChange={(e) => { setColor(e.target.value); setAiFields((f) => ({ ...f, color: false })); }}
-                className="input"
-                placeholder="e.g. cream, navy"
-              />
+              <select value={color} onChange={(e) => { setColor(e.target.value); setAiFields((f) => ({ ...f, color: false })); }} className="input">
+                <option value="">Auto-detect…</option>
+                {BASIC_COLORS.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
             </Field>
             <Field label="Condition" aiNote={aiFields.condition}>
               <select
@@ -459,16 +454,13 @@ function ListFast() {
                 placeholder={MEASURABLE_TYPES.has(itemType) ? "Flaws, measurements, fit" : "Model #, specs, accessories"}
               />
             </Field>
-            <Field label="SKU number">
-              <input
-                type="number"
-                min={0}
-                value={skuNumber}
-                onChange={(e) => setSkuNumber(e.target.value)}
-                className="input"
-                placeholder="e.g. 57"
-              />
-            </Field>
+            <YesNo label="Include an item number?" value={includeItemNumber} onChange={setIncludeItemNumber} disabled={consignment} />
+            <YesNo label="Consignment piece?" value={consignment} onChange={setConsignment} />
+            {consignment && <Field label="Consigner's name"><input className="input" value={consignerName} maxLength={120} onChange={e => setConsignerName(e.target.value)} /></Field>}
+            {includeItemNumber && !consignment && <Field label="SKU number">
+              <input type="number" min={0} value={skuNumber} onChange={e => setSkuNumber(e.target.value)} className="input" placeholder="e.g. 57" />
+            </Field>}
+            <YesNo label="Skip style tags?" value={skipStyleTags} onChange={setSkipStyleTags} />
           </div>
         </section>
 
@@ -539,12 +531,12 @@ function ListFast() {
             </ResultCard>
 
             <ResultCard
-              title="eBay Description"
+              title="Description"
               accent="sage"
-              onCopy={() => copy(ebayDescription, "eBay description")}
+              onCopy={() => copy(description, "Description")}
             >
-              <div className="whitespace-pre-wrap leading-relaxed text-sm font-light">{ebayDescription}</div>
-              <p className="text-xs mt-2 text-muted-foreground">{ebayDescription.length} / 1000 characters</p>
+              <div className="whitespace-pre-wrap leading-relaxed text-sm font-light">{description}</div>
+              <p className="text-xs mt-2 text-muted-foreground">{description.length} / 900 characters</p>
             </ResultCard>
 
             <ResultCard
@@ -556,18 +548,6 @@ function ListFast() {
               <p className={`text-xs mt-2 tracking-wide ${listing.conditionDescription.length > 200 ? "text-destructive" : "text-muted-foreground"}`}>
                 {listing.conditionDescription.length} / 200 characters
               </p>
-            </ResultCard>
-
-            <ResultCard
-              title="Poshmark Description"
-              accent="lavender"
-              onCopy={() => copy(poshmarkDescription, "Poshmark description")}
-            >
-              <div className="whitespace-pre-wrap leading-relaxed text-sm font-light">{poshmarkDescription}</div>
-            </ResultCard>
-
-            <ResultCard title="Depop Description" accent="peach" onCopy={() => copy(depopDescription, "Depop description")}>
-              <div className="whitespace-pre-wrap leading-relaxed text-sm font-light">{depopDescription}</div>
             </ResultCard>
 
             <ResultCard
@@ -610,14 +590,13 @@ function ListFast() {
               accent="lavender"
               onCopy={() =>
                 copy(
-                  `eBay BIN: $${listing.priceEbayLow}–$${listing.priceEbayHigh}\nPoshmark: $${listing.pricePoshmark}\nFloor: $${listing.priceFloor}\n${listing.priceNote}`,
+                  `Suggested list price: $${listing.priceList}\nFloor: $${listing.priceFloor}\n${listing.priceNote}`,
                   "Prices",
                 )
               }
             >
-              <div className="grid sm:grid-cols-3 gap-3 mb-4">
-                <PriceTile label="eBay BIN" value={`$${listing.priceEbayLow}–$${listing.priceEbayHigh}`} />
-                <PriceTile label="Poshmark" value={`$${listing.pricePoshmark}`} />
+              <div className="grid sm:grid-cols-2 gap-3 mb-4">
+                <PriceTile label="Suggested list price" value={`$${listing.priceList}`} />
                 <PriceTile label="Floor" value={`$${listing.priceFloor}`} />
               </div>
               <p className="text-sm text-muted-foreground font-light leading-relaxed">{listing.priceNote}</p>
@@ -708,4 +687,14 @@ function ResultCard({
       {children}
     </section>
   );
+}
+
+function YesNo({label, value, onChange, disabled = false}: {label: string; value: boolean; onChange: (value: boolean) => void; disabled?: boolean}) {
+  return <fieldset disabled={disabled} className="space-y-2 disabled:opacity-50">
+    <legend className="text-xs uppercase tracking-[0.18em] text-muted-foreground font-light">{label}</legend>
+    <div className="inline-flex gap-1" role="group" aria-label={label}>
+      <Button variant={value ? "default" : "outline"} size="sm" aria-pressed={value} onClick={() => onChange(true)}>Y</Button>
+      <Button variant={!value ? "default" : "outline"} size="sm" aria-pressed={!value} onClick={() => onChange(false)}>N</Button>
+    </div>
+  </fieldset>;
 }
