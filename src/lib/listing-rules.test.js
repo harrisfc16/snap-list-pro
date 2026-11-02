@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildSku, DEFAULT_CONDITION, finalizeKeywords, formatDescription, normalizeColor, normalizeTitle, resolveCondition, withKeywordRecovery } from "./listing-rules";
+import { buildSku, DEFAULT_CONDITION, finalizeKeywords, formatSharedDescription, descriptionHashtags, itemNumberOutput, SKU_CATEGORIES, outputText, normalizeColor, normalizeTitle, resolveCondition, withKeywordRecovery } from "./listing-rules";
 
 describe("listing requirements", () => {
   test("condition defaults to Excellent and tags are required for New with tags", () => {
@@ -15,7 +15,10 @@ describe("listing requirements", () => {
   test("three prominent colors and multicolor patterns normalize Color", () => {
     expect(normalizeColor("red, blue, green")).toBe("Multicolor");
     expect(normalizeColor("floral", 2, true)).toBe("Multicolor");
-    expect(normalizeColor("navy", 1)).toBe("navy");
+    expect(normalizeColor("navy", 1)).toBe("Blue");
+    expect(normalizeColor("sage")).toBe("Green");
+    expect(normalizeColor("burgundy")).toBe("Red");
+    expect(normalizeColor("blush")).toBe("Pink");
   });
   test("item number uses exact date/category/three-digit number", () => {
     expect(`Item# ${buildSku("DRESS", 1, "20260614")}`).toBe("Item# 20260614-DRESS-001");
@@ -25,27 +28,61 @@ describe("listing requirements", () => {
     expect(normalizeTitle("Acme " + "dress ".repeat(30), true).length).toBeLessThanOrEqual(80);
     expect(normalizeTitle("Acme dress", true)).toBe("Acme dress NWT");
   });
-  test("all descriptions share a title-first opening and exact item number", () => {
-    for (const platform of ["ebay", "poshmark", "depop"]) {
-      const text = formatDescription(platform, "Cotton wide leg trousers.", "Acme Trousers 10 Sage", "20260614-DRESS-001", ["cotton"], false);
-      expect(text.startsWith("Acme Trousers 10 Sage\n\n")).toBe(true);
-      expect(text).toContain("Item# 20260614-DRESS-001");
-    }
+  const facts = {
+    title: "Acme Wide Leg Pants Size 7.5 Green Pleated", summary: "Cotton pants with a wide leg fit.",
+    size: "7.5", color: "Green", condition: "Excellent", styleLine: "Style: Workwear", brand: "Acme",
+    itemType: "Pants", material: "Cotton", fit: "Wide leg", use: "Workwear", features: ["Pleated"],
+    keywords: ["sage", "quiet luxury"], itemNumber: "20261102-BTM-001", skipStyleTags: false, categoryCode: "BTM",
+  };
+  test("item number defaults, opt-out and consignment precedence are exact", () => {
+    expect(itemNumberOutput(true, false, "", "20261102-OTHER-001")).toBe("20261102-OTHER-001");
+    expect(itemNumberOutput(false, false, "", "20261102-OTHER-001")).toBe("No Item #");
+    expect(itemNumberOutput(true, true, "Jane", "20261102-OTHER-001")).toBe("No Item # (Jane)");
+    expect(itemNumberOutput(false, true, " Jane ", "20261102-OTHER-001")).toBe("No Item # ( Jane )");
   });
-  test("eBay complete copied description is at most 1000 characters", () => {
-    expect(formatDescription("ebay", "Cotton fabric. ".repeat(200), "Acme Dress", "20260614-DRESS-001", Array.from({length: 35}, (_, i) => `keyword ${i}`), false).length).toBeLessThanOrEqual(1000);
+  test("allowed categories include PET and exclude removed codes", () => {
+    expect(SKU_CATEGORIES).toEqual(["TOP", "BTM", "DRESS", "SHOE", "BAG", "ACC", "OUTER", "DENIM", "PET", "HOME", "OTHER"]);
+    expect(buildSku("PET", 1, "20261102")).toBe("20261102-PET-001");
+    expect(buildSku("JEWEL", 1, "20261102")).toBe("20261102-OTHER-001");
   });
-  test("Poshmark complete copied description is at most 1000 words", () => {
-    expect(formatDescription("poshmark", "cotton ".repeat(2000), "Acme Dress", "20260614-DRESS-001", ["cotton"], false).split(/\s+/).length).toBeLessThanOrEqual(1000);
+  test("description has shared plain title, separate details and item number last", () => {
+    const text = formatSharedDescription(facts);
+    expect(text.startsWith(facts.title + "\n\n")).toBe(true);
+    expect(text).toContain("Size: 7.5\nColor: Green\nCondition: Excellent");
+    expect(text.endsWith("\n\n20261102-BTM-001")).toBe(true);
+    expect(text).not.toContain("Keywords:");
   });
-  test("only Depop allows explicitly supplied measurements", () => {
-    for (const platform of ["ebay", "poshmark"]) expect(formatDescription(platform, "Bust: 20 inches\nCotton fabric", "Acme Dress", "20260614-DRESS-001", [], false)).not.toContain("20 inches");
-    expect(formatDescription("depop", "Bust: 20 inches", "Acme Dress", "20260614-DRESS-001", [], false)).toContain("20 inches");
+  test("description including hashtags and item number is strictly under 900", () => {
+    const text = formatSharedDescription({...facts, summary: "Cotton material with pleated detailing ".repeat(80)});
+    expect(text.length).toBeLessThan(900);
+    expect(text.endsWith(facts.itemNumber)).toBe(true);
   });
-  test("Depop ends with no more than five hashtags", () => {
-    const text = formatDescription("depop", "Cotton dress", "Acme Dress", "20260614-DRESS-001", ["acme", "dress", "cotton", "midi", "sage", "summer"], false);
-    expect(text.match(/#/g)?.length).toBe(6); // Item# plus five hashtags.
-    expect(text.endsWith("#sage")).toBe(true);
+  test("no measurements, emoji, filler or comparison claims in description", () => {
+    const text = formatSharedDescription({...facts, summary: "Step into stunning fashion. Cotton pants. Bust: 20 inches. Similar to Gucci. Industry-standard quality. 🛍️", styleLine: "Waist 30 cm"});
+    expect(text).toContain("Cotton pants.");
+    expect(text).not.toMatch(/Step into|stunning|Gucci|industry-standard|20 inches|30 cm|🛍/i);
+  });
+  test("exactly five hashtags: brand, type, color and two factual descriptors, no sizes or codes", () => {
+    const tags = descriptionHashtags(facts);
+    expect(tags).toEqual(["#acme", "#pants", "#green", "#cotton", "#wideleg"]);
+    expect(tags).not.toContain("#75");
+    expect(tags).not.toContain("#btm");
+  });
+  test("skip style tags removes all selected aesthetics across text and keywords", () => {
+    expect(outputText("Vintage y2k quiet luxury green cotton", true)).toBe("green cotton");
+    const terms = finalizeKeywords(["vintage", "quiet luxury", "cotton"], {...facts, itemSpecifics: {}, tagsAttached: false, skipStyleTags: true});
+    expect(terms).not.toContain("vintage");
+    expect(terms).not.toContain("quiet luxury");
+    expect(formatSharedDescription({...facts, summary: "Vintage cotton pants.", skipStyleTags: true})).not.toMatch(/vintage|quietluxury/i);
+  });
+  test("half sizes preserve decimal period in title and keywords", () => {
+    expect(normalizeTitle("Acme Shoes Size 7.5 Sage!", false)).toBe("Acme Shoes Size 7.5 Green");
+    expect(finalizeKeywords(["7.5"], {...facts, itemSpecifics: {}, tagsAttached: false})).toContain("7.5");
+  });
+  test("unused retail packaging gives non-clothing New in box only", () => {
+    expect(resolveCondition(false, false, "", "", true, "Electronics")).toBe("New in box");
+    expect(resolveCondition(false, false, "", "", false, "Electronics")).toBe("Excellent");
+    expect(resolveCondition(false, true, "Good", "", true, "Electronics")).toBe("Good");
   });
   test("keywords include known fields, cap at 35, omit banned phrases and unsupported NWT", () => {
     const terms = finalizeKeywords(["old money", "NWT", ...Array.from({ length: 40 }, (_, i) => `style ${i}`)], { title: "Acme Dress", brand: "Acme", itemType: "Dress", size: "M", color: "Multicolor", itemSpecifics: {Material: "Cotton"}, tagsAttached: false });
