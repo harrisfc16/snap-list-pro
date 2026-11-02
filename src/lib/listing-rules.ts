@@ -87,3 +87,43 @@ export function finalizeKeywords(raw: string[], fields: { brand?: string; itemTy
   return [...unique.values()].slice(0, MAX_KEYWORDS);
 }
 
+export type DescriptionFacts = {
+  title: string; summary: string; size: string; color: string; condition: string;
+  styleLine: string; brand: string; itemType: string; material: string; fit: string;
+  use: string; features: string[]; keywords: string[]; itemNumber: string;
+  skipStyleTags: boolean; categoryCode: string;
+};
+
+export function factualText(text: string, skipStyleTags = false): string {
+  return outputText(text, skipStyleTags).split(/\n|(?<=[.!?])\s+(?!\d)/)
+    .filter(line => !/\b(?:step into|elevate|stunning|introducing|sophisticated|industry[- ]standard|top[- ]tier|comparable|similar to|inspired by|like [A-Z][a-z]+|shipping|returns|unknown|not visible|placeholder|measurements?|inches|inch|centimeters?|cm|inseam)\b/i.test(line))
+    .filter(line => !/\b\d+(?:\.\d+)?\s*["″]|\b(?:chest|bust|waist|hips?|length|sleeve|shoulders?|rise|thigh)\s*[:=]?\s*\d/i.test(line))
+    .join(" ").replace(/#[\p{L}\p{N}_]+/gu, "").trim();
+}
+
+export function descriptionHashtags(facts: DescriptionFacts): string[] {
+  const hashtag = (value: string) => outputText(value, facts.skipStyleTags).replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
+  const core = [facts.brand, facts.itemType, facts.color].map(hashtag).filter(Boolean);
+  const terms = [facts.material, facts.fit, facts.use, ...facts.features, ...facts.keywords];
+  const candidates = terms.filter(term => term && term !== facts.size && !/\d|\b(?:size|new with tags|excellent|good|fair)\b/i.test(term))
+    .map(hashtag).filter(term => term && !SKU_CATEGORIES.some(code => code.toLowerCase() === term) && !core.includes(term));
+  // Use item-derived phrases if the model supplies fewer than two descriptors; never invent a style or brand.
+  const fallbacks = [facts.color + facts.itemType, facts.brand + facts.itemType, facts.material + facts.itemType, facts.use + facts.itemType].map(hashtag);
+  const unique = [...new Set([...core, ...candidates, ...fallbacks])]
+    .filter(term => term && !SKU_CATEGORIES.some(code => code.toLowerCase() === term));
+  return unique.slice(0, 5).map(term => `#${term}`);
+}
+
+export function formatSharedDescription(facts: DescriptionFacts): string {
+  const title = facts.title;
+  const summary = factualText(facts.summary, facts.skipStyleTags).split(/(?<=[.!?])\s+(?!\d)/).slice(0, 2).join(" ");
+  const details = [facts.size ? `Size: ${outputText(facts.size)}` : "", facts.color ? `Color: ${normalizeColor(facts.color)}` : "", `Condition: ${outputText(facts.condition)}`].filter(Boolean).join("\n");
+  const tags = descriptionHashtags(facts).join(" ");
+  const suffix = `\n${details}\n\n${tags}\n\n${facts.itemNumber}`;
+  const available = Math.max(0, 899 - title.length - 2 - suffix.length);
+  const style = factualText(facts.styleLine, facts.skipStyleTags);
+  let prose = [summary, style].filter(Boolean).join("\n");
+  if (prose.length > available) prose = prose.slice(0, available).replace(/\s+\S*$/, "").trim();
+  return `${title}\n\n${prose}${suffix}`;
+}
+
