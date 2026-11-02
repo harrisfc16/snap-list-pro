@@ -3,7 +3,7 @@ import { generateText, Output } from "ai";
 import { z } from "zod";
 
 import { createLovableAiGatewayProvider } from "./ai-gateway.server";
-import { buildSku, cleanText, finalizeKeywords, formatDescription, normalizeColor, normalizeTitle, resolveCondition, validKeywords, withKeywordRecovery } from "./listing-rules";
+import { buildSku, cleanText, finalizeKeywords, formatSharedDescription, factualText, outputText, itemNumberOutput, STYLE_TERMS, BASIC_COLORS, SKU_CATEGORIES, normalizeColor, normalizeTitle, resolveCondition, validKeywords, withKeywordRecovery } from "./listing-rules";
 
 const PhotoSchema = z.object({
   dataUrl: z.string().min(20),
@@ -19,6 +19,10 @@ const InputSchema = z.object({
   skuNumber: z.number().int().min(0).max(99999).optional(),
   itemType: z.string().optional(),
   color: z.string().optional(),
+  includeItemNumber: z.boolean().default(true),
+  consignment: z.boolean().default(false),
+  consignerName: z.string().max(120).default(""),
+  skipStyleTags: z.boolean().default(false),
   listingDate: z.string().regex(/^\d{8}$/),
 });
 
@@ -26,18 +30,15 @@ const ListingSchema = z.object({
   categoryCode: z.string().describe("One of: TOP, BTM, DRESS, SHOE, BAG, PURSE, JEWEL, ACC, OUTER, DENIM, ELEC, HOME, COLLECT, BEAUTY, TOY, BOOK, OTHER"),
   title: z.string().describe("eBay title, max 80 characters"),
   itemSpecifics: z.record(z.string(), z.string()).describe("Key-value pairs like Brand, Size, Color, Material, Type, Model, Features. Only include fields you can determine."),
-  descriptionEbay: z.string().describe("eBay description, 3-5 short paragraphs"),
+  description: z.string(),
+  itemNumber: z.string(),
+  priceList: z.number(),
   conditionDescription: z.string().describe("eBay condition description, max 200 chars, factual"),
   sku: z.string(),
   keywordsFallback: z.boolean(),
-  descriptionDepop: z.string(),
-  descriptionPoshmark: z.string().describe("Poshmark description, friendlier tone, 2-4 short paragraphs"),
   categoryEbay: z.string().describe("Full eBay category path"),
   categoryPoshmark: z.string().describe("Full Poshmark category path"),
   keywords: z.array(z.string()).describe("18-25 high-traffic search keywords"),
-  priceEbayLow: z.number(),
-  priceEbayHigh: z.number(),
-  pricePoshmark: z.number(),
   priceFloor: z.number(),
   priceNote: z.string().optional().default(""),
 });
@@ -48,10 +49,18 @@ const ListingResultSchema = z.object({
   categoryCode: looseString,
   title: looseString,
   itemSpecifics: z.record(z.coerce.string()).catch({}),
-  descriptionEbay: looseString,
+  summary: looseString,
+  styleLine: looseString,
+  itemType: looseString,
+  brand: looseString,
+  size: looseString,
+  color: looseString,
+  material: looseString,
+  fit: looseString,
+  use: looseString,
+  features: z.array(z.string()).catch([]),
+  unusedRetailPackaging: z.boolean().catch(false),
   conditionDescription: looseString,
-  descriptionPoshmark: looseString,
-  descriptionDepop: looseString,
   retailTagsAttached: z.boolean().catch(false),
   unwornWithoutTags: z.boolean().catch(false),
   visibleFlaw: z.boolean().catch(false),
@@ -60,14 +69,13 @@ const ListingResultSchema = z.object({
   categoryEbay: looseString,
   categoryPoshmark: looseString,
   keywords: z.array(z.coerce.string()).catch([]),
-  priceEbayLow: z.coerce.number().catch(0),
-  priceEbayHigh: z.coerce.number().catch(0),
-  pricePoshmark: z.coerce.number().catch(0),
+  priceList: z.coerce.number().catch(0),
   priceFloor: z.coerce.number().catch(0),
   priceNote: looseString,
 });
 
 const DetectionResultSchema = z.object({
+  unusedRetailPackaging: z.boolean().catch(false),
   photos: z.array(z.object({ index: z.coerce.number().catch(0), label: z.coerce.string().catch("") })).catch([]),
   brand: looseString,
   size: looseString,
@@ -112,48 +120,22 @@ export const generateListing = createServerFn({ method: "POST" })
     const model = gateway("google/gemini-3-flash-preview");
 
     const userText = [
-      "Generate a complete reseller listing for the item in the photos. Items may be clothing, shoes, bags, purses, jewelry, accessories, electronics, home goods, collectibles, beauty, toys, books, or other resale categories. Adapt your fields to the item type.",
-      "",
-      "Reading instructions:",
-      "- Read brand, size, material from any tag/label photos.",
-      "- NEVER include any measurements (chest, bust, waist, hips, length, sleeve, inseam, shoulders, rise, thigh, or any inches/cm value) in descriptionEbay, descriptionPoshmark, conditionDescription, or itemSpecifics. Do NOT tell the buyer to request measurements. Ignore any tape measure values entirely.",
-      "- If a tag value is unreadable, OMIT that itemSpecifics field entirely and DO NOT mention it in either description. Never write 'Not visible', 'Unknown', '[placeholder]', or similar.",
-      "- Analyze the photos VISUALLY — colors, style, fit, era, condition. Don't rely only on text inputs.",
-      "- For non-clothing items, skip Size/Material/Department and instead populate Type/Brand/Model/Features/Color where they apply.",
-      "- BANNED phrase: never use 'old money' anywhere (title, keywords, descriptions, condition, hashtags). Pick a different aesthetic if it fits.",
-      "",
-      "User-provided fields (use as ground truth if present):",
-      `Brand: ${data.brand || "(let AI read tag)"}`,
-      `Size: ${data.size || "(let AI read tag)"}`,
-      `Condition: ${data.condition || "(not specified)"}`,
-      `Item type: ${data.itemType || "(detect from photos)"}`,
-      `Notes: ${data.notes || "(none)"}`,
-      "",
-      "Photos (in order):",
-      ...data.photos.map((p, i) => `Photo ${i + 1}: ${p.label || "unlabeled"}`),
-      "",
-      "Requirements:",
-      "- categoryCode: pick ONE — TOP, BTM, DRESS, SHOE, BAG, PURSE (purses/handbags), JEWEL (jewelry), ACC, OUTER, DENIM, ELEC (electronics), HOME (home goods), COLLECT (collectibles), BEAUTY, TOY, BOOK, OTHER.",
-      "- title: pack keywords aggressively. Target 78-80 chars, NEVER exceed 80 characters (hard cap — count and shorten if needed). Order: Brand + Item Type + Model (if any) + Size + Color + 3-5 high-traffic search descriptors (style, fit, era, material, aesthetic, occasion). No filler words ('a', 'the', 'with'), no punctuation, no symbols. Maximize discoverability.",
-      "- itemSpecifics: fill ONLY the fields you can actually determine; omit any you can't.",
-      "- descriptionEbay: structured & factual, MAX 1000 CHARACTERS total (hard cap — count characters, not words, and shorten to fit). 1-2 sentence hook packed with searchable terms, then compact bullets for material, fit/size (WITHOUT numeric measurements), condition, and design features. Keyword-dense but concise. After the final line, add a blank line then 'Keywords: ' followed by keywords comma-separated (trim keywords if needed to stay under 1000 chars). DO NOT mention shipping, returns, or any measurements.",
-      "- conditionDescription: MAX 200 characters. Honest, factual; note whether any wear/distressing is intentional or actual.",
-      "- descriptionPoshmark: casual, social, conversational AND keyword-dense, MAX 1000 words. Energetic hook, then brand/size/material/condition/styling ideas (work in synonyms, aesthetics, occasions, comparable brands). Do NOT include measurements. Last line: 15-20 hashtags lowercase no-spaces — mix factual tags with trending aesthetic tags.",
-      "- categoryEbay: full eBay category path (e.g. 'Women's Clothing > Tops > T-Shirts').",
-      "- categoryPoshmark: full Poshmark category path.",
-      "- keywords: up to 35 high-traffic search terms. Be aggressive — include brand, item type, size, color, material, style, era, fit, occasion, comparable/competitor brands, popular synonyms (e.g. 'sweatshirt' AND 'crewneck' AND 'pullover'), condition qualifiers (preloved, vintage, EUC, NWT where accurate), and trending aesthetic tags ONLY if they genuinely match: normcore, scandi girl, Y2K, quiet luxury, cottagecore, dark academia, indie sleaze, coastal grandmother, balletcore, gorpcore, vintage, grunge, streetwear, techwear. NEVER include 'old money'. Prioritize discoverability.",
-      "- prices (USD whole numbers): priceEbayLow/priceEbayHigh = realistic Buy-It-Now range based on brand, condition, current resale market. pricePoshmark = single list price (typically slightly above eBay high to allow for offers). priceFloor = absolute don't-go-below. priceNote: 1-2 sentences on what's driving the price.",
-      "",
-      "The following rules override earlier style/condition/keyword instructions:",
-      "- descriptionEbay, descriptionPoshmark, and descriptionDepop must start with the EXACT same title as the title field, then a blank line, then concise factual details. Never open with Elevate your wardrobe, Step into, Introducing, Stunning, or Sophisticated. No emoji or generic promotional hooks.",
-      "- Depop: short factual material/fit/design details, condition, item number added by the app, and up to five relevant hashtags at the end. Include measurements ONLY if explicitly provided in Notes, never inferred from photos. eBay and Poshmark still forbid all measurements and requests for measurements.",
-      "- retailTagsAttached: boolean, true ONLY when ORIGINAL RETAIL tags are clearly still attached in the photos. A sewn-in brand/size/care tag does NOT qualify. unwornWithoutTags: boolean, true only when visibly unworn and no attached retail tags.",
-      "- visibleFlaw: boolean, true ONLY for a clear flaw in photos. Default condition Excellent (pre-owned), or New with tags if attached retail tags are visible; lower only for clear flaws or Notes. Never assume wear because an item is pre-owned. Describe condition accordingly.",
-      "- Add NWT to title and descriptions and keywords ONLY when retailTagsAttached is true. NWOT ONLY if visibly unworn and tags absent. Do not assume newness from user condition alone.",
-      "- prominentColorCount: number of prominent colors. multicolorPattern: boolean. Three or more prominent colors OR multicolor print/pattern => Color field and itemSpecifics Color MUST be Multicolor. Individual colors may appear in descriptions and keywords.",
-      `Color supplied by user: ${data.color || "(detect from photos)"}`,
-      "- keywords is REQUIRED: a nonempty JSON array of strings, up to 35, ordered most relevant first. Include known brand, specific item type, color, size, style, fit and fabric. No irrelevant comparable brands or keyword stuffing. Use only terms actually supported by photos/tags/notes.",
-      "- Prefer accurate terms from: boho, cottagecore, Y2K, minimalist, quiet luxury, streetwear, scandi, coastal grandmother, preppy, vintage, retro, gorpcore, athleisure, utility, western, academia, grunge, romantic, clean girl, barbiecore, high rise, wide leg, oversized, relaxed fit, cropped, midi, maxi, bodycon, pleated, ruched, wrap, asymmetrical, tailored, flared, empire waist, off shoulder, sleeveless, babydoll, slip, paperbag waist, euro summer, resortwear, festival, vacation, date night, workwear, office casual, capsule wardrobe, loungewear, activewear, wedding guest, brunch outfit, cozy, fall fashion, winter wear, travel style, everyday, night out, poolside, transitional, linen, silk, cashmere, leather, denim, cotton, ribbed, lace, satin, velvet, floral, gingham, striped, polka dot, animal print, plaid, eyelet, distressed, sheer, knit, lightweight, breathable, soft, structured, flowy, stretch, layered, versatile, timeless, comfortable, NWT, NWOT, indie, pastel, neon, neutral, earthy, jewel tones, tie dye, ombre, colorblock, monochrome, dainty, chunky, slouchy, fitted, boxy, draped, straight leg, bootcut, bell bottom, skinny, low rise, mid rise, ankle crop, raw hem, frayed, acid wash, light wash, dark wash, stonewash, vegan leather, faux fur, sherpa, fleece, corduroy, tweed, boucle, chiffon, tulle, sequins, glitter, metallic, embroidered, beaded, appliqued, smocked, shirred, ribbed knit, cable knit, pointelle, waffle knit, thermal, quick dry, moisture wicking, compression, UPF, seamless, reversible, insulated, waterproof, windbreaker, anorak, shacket, duster, trench, moto, peplum, tunic, halter, racerback, one shoulder, strapless, tube top, corset, bustier, bralette, bodysuit, romper, jumpsuit, overalls, coveralls, dungarees, pinafore, skort, bermuda, capri, cropped flare, gaucho, culottes, tiered, ruffled, scalloped, fringe, tassel, lace up, button down, zip up, deadstock.",
+      "Generate an accurate resale listing from photos. Read only legible tag details and visually supported facts; omit unknowns. No invented brands, material, sizes, or flaws.",
+      `User facts: Brand=${data.brand || "read tag"}; Size=${data.size || "read tag"}; Color=${normalizeColor(data.color || "") || "detect"}; Condition=${data.condition || "Excellent"}; Item type=${data.itemType || "detect"}; Notes=${data.notes || "none"}.`,
+      `Photos: ${data.photos.map((p, i) => `${i+1}: ${p.label || "unlabeled"}`).join("; ")}`,
+      `categoryCode: exactly one of ${SKU_CATEGORIES.join(", ")}. Use PET for pet supplies, ACC for jewelry/accessories, BAG for purses/bags, HOME for home goods; OTHER only if nothing fits. Category codes are inventory labels, never keywords or hashtags.`,
+      "title: Brand + specific item type + Size + basic color + 2–3 factual key details. Max 80 characters. Plain text, no emojis or symbols EXCEPT a decimal period between digits: size 7.5 must remain 7.5, never 7 5. No filler words. Include NWT only if original retail tags visibly attached.",
+      `Colors everywhere: only ${BASIC_COLORS.join(", ")}. Map shades to nearest basic color (sage/olive => Green, navy => Blue, burgundy => Red, blush => Pink). Multicolor only for 3+ prominent colors or multicolor print. No shade names in any output.`,
+      "summary: 1–2 short factual sentences about material, fit, key features. NO title, headings, keyword lists, hashtags, brand comparisons, other brands, emojis, measurements or promotional claims. No Step into, Elevate, Stunning, Introducing, industry-standard, top-tier. Only own brand may appear.",
+      "Return factual fields brand, itemType (specific e.g. basket muzzle or wide leg pants, not Clothing), size, color, material, fit, use, features (short array), styleLine (optional ONE factual styling line). No measurements anywhere even if in Notes. Never suggest requesting measurements. App formats one description with separate lines and exactly 5 hashtags for all platforms under 900 characters.",
+      "itemSpecifics: only known fields. Brand, Size, Color, Material, Type, Fit, Use, Features where applicable. Omit clothing-only fields for non-clothing. Never measurements. Only own brand.",
+      "retailTagsAttached: true ONLY if original retail hangtags attached; sewn-in care/brand/size labels do not count. unusedRetailPackaging: true only if original unopened/retail packaging is visible AND item visibly unused. unwornWithoutTags: true only if visibly unworn without tags. visibleFlaw: true only for clearly visible flaws.",
+      "Default condition Excellent (pre-owned). Clothing with attached retail tags => New with tags. Non-clothing in original packaging and unused => New in box. Lower to Good/Fair only for clear photo or Notes flaws. conditionDescription <=200 characters, honest, no measurements or emoji. NWT only with attached retail tags; NWOT only if visibly unworn without tags.",
+      "prominentColorCount: number; multicolorPattern: boolean. Set color and specifics Color to Multicolor for 3+ prominent colors or multicolor pattern.",
+      `The ONLY allowed aesthetic style terms are ${STYLE_TERMS.join(", ")}; choose only truly fitting ones. Older aesthetic lists are replaced entirely. Otherwise choose specific accurate fabric/fit/use/occasion terms. ${data.skipStyleTags ? "Skip style tags is YES: prohibit ALL of these aesthetic terms in EVERY output, including title, description, specifics, condition, categories, keywords, prices." : "Skip style tags is NO: use aesthetic terms only if genuinely supported."}`,
+      "keywords: REQUIRED nonempty array, up to 35, most relevant first. Include known own brand, specific item type, basic color, size (preserve decimal), material, fit, use/occasion. Never category codes, other brands, inaccurate terms, or keyword stuffing. Never use the banned phrase old money, including compressed hashtags.",
+      "Hashtags will use own brand, specific item type, basic color, plus two accurate style/feature/use terms; never size tags or category codes. Supply at least two accurate material/fit/use/features terms when supported.",
+      "categoryEbay and categoryPoshmark: full platform category paths. priceList: ONE whole USD suggested list price for every platform. priceFloor: whole USD minimum. priceNote: 1–2 factual sentences driving price. No alternate platform price fields.",
     ].join("\n");
 
     try {
@@ -168,7 +150,7 @@ export const generateListing = createServerFn({ method: "POST" })
             content: [
               {
                 type: "text",
-                text: `${userText}\n\nReturn ONLY a valid JSON object with keys: categoryCode, title, itemSpecifics, descriptionEbay, conditionDescription, descriptionPoshmark, categoryEbay, categoryPoshmark, keywords, priceEbayLow, priceEbayHigh, pricePoshmark, priceFloor, priceNote, descriptionDepop, retailTagsAttached, unwornWithoutTags, visibleFlaw, prominentColorCount, multicolorPattern. Do not wrap in markdown.`,
+                text: `${userText}\n\nReturn ONLY a valid JSON object with keys: categoryCode, title, itemSpecifics, summary, styleLine, brand, itemType, size, color, material, fit, use, features, conditionDescription, categoryEbay, categoryPoshmark, keywords, priceList, priceFloor, priceNote, retailTagsAttached, unusedRetailPackaging, unwornWithoutTags, visibleFlaw, prominentColorCount, multicolorPattern. No markdown`,
               },
               ...data.photos.map((p) => ({
                 type: "image" as const,
@@ -190,24 +172,36 @@ export const generateListing = createServerFn({ method: "POST" })
         title: draft.title, itemSpecifics: draft.itemSpecifics, tagsAttached: draft.retailTagsAttached,
       }, true));
       if (!parsed.title.trim()) return { ok: false as const, error: "AI returned an incomplete listing. Please generate again." };
-      const sanitized = sanitizeListing(parsed);
+      const clean = (value: string) => outputText(value, data.skipStyleTags);
       const tagsAttached = parsed.retailTagsAttached;
-      const title = normalizeTitle(sanitized.title, tagsAttached);
+      const title = normalizeTitle(clean(parsed.title), tagsAttached);
       const sku = buildSku(parsed.categoryCode, data.skuNumber ?? 1, data.listingDate);
+      const itemNumber = itemNumberOutput(data.includeItemNumber, data.consignment, data.consignerName, sku);
       const itemSpecifics = Object.fromEntries(Object.entries(parsed.itemSpecifics)
         .filter(([key, value]) => !/measurement|chest|bust|waist|hips|inseam|sleeve length|length/i.test(key) && !/unknown|not visible|placeholder/i.test(value))
-        .map(([key, value]) => [cleanText(key), cleanText(value)]));
-      const detectedColor = normalizeColor(data.color || itemSpecifics.Color || itemSpecifics.color || "", parsed.prominentColorCount, parsed.multicolorPattern);
+        .map(([key, value]) => [clean(key), clean(value)]).filter(([key, value]) => key && value));
+      const detectedColor = normalizeColor(data.color || parsed.color || itemSpecifics.Color || itemSpecifics.color || "", parsed.prominentColorCount, parsed.multicolorPattern);
       if (detectedColor) { delete itemSpecifics.color; itemSpecifics.Color = detectedColor; }
-      const keywords = finalizeKeywords(sanitized.keywords, {
-        brand: data.brand, itemType: data.itemType, color: detectedColor, size: data.size,
+      const ownBrand = data.brand || parsed.brand || itemSpecifics.Brand || itemSpecifics.brand || "";
+      const size = data.size || parsed.size || itemSpecifics.Size || "";
+      const specificType = parsed.itemType || itemSpecifics.Type || data.itemType || "";
+      const condition = resolveCondition(tagsAttached, parsed.visibleFlaw, data.condition || "", data.notes || "", parsed.unusedRetailPackaging, data.itemType || "Clothing");
+      const keywords = finalizeKeywords(parsed.keywords, {
+        brand: ownBrand, itemType: specificType, color: detectedColor, size,
         title, itemSpecifics, tagsAttached, unwornWithoutTags: parsed.unwornWithoutTags,
+        skipStyleTags: data.skipStyleTags, categoryCode: parsed.categoryCode,
       }, parsed.keywordsFallback);
+      const description = formatSharedDescription({
+        title, summary: parsed.summary, styleLine: parsed.styleLine, brand: ownBrand,
+        itemType: specificType, size, color: detectedColor, condition,
+        material: parsed.material || itemSpecifics.Material || "", fit: parsed.fit || itemSpecifics.Fit || "",
+        use: parsed.use, features: parsed.features, keywords, itemNumber,
+        skipStyleTags: data.skipStyleTags, categoryCode: parsed.categoryCode,
+      });
       const listing = {
-        ...sanitized, title, sku, itemSpecifics, keywords,
-        descriptionEbay: formatDescription("ebay", sanitized.descriptionEbay, title, sku, keywords, tagsAttached),
-        descriptionPoshmark: formatDescription("poshmark", sanitized.descriptionPoshmark, title, sku, keywords, tagsAttached),
-        descriptionDepop: formatDescription("depop", sanitized.descriptionDepop, title, sku, keywords, tagsAttached),
+        ...parsed, title, sku, itemNumber, itemSpecifics, keywords, description,
+        conditionDescription: factualText(parsed.conditionDescription, data.skipStyleTags).slice(0, 200),
+        categoryEbay: clean(parsed.categoryEbay), categoryPoshmark: clean(parsed.categoryPoshmark), priceNote: clean(parsed.priceNote),
       };
       return { ok: true as const, listing };
     } catch (err) {
@@ -217,28 +211,6 @@ export const generateListing = createServerFn({ method: "POST" })
   });
 
 export type Listing = z.infer<typeof ListingSchema>;
-
-function stripOldMoney(text: string): string {
-  return text.replace(/\bold[\s-]?money\b/gi, "").replace(/[ \t]{2,}/g, " ").replace(/,\s*,/g, ",");
-}
-function truncateWords(text: string, maxWords: number): string {
-  const words = text.split(/\s+/);
-  if (words.length <= maxWords) return text;
-  return words.slice(0, maxWords).join(" ");
-}
-function sanitizeListing<T extends {
-  title: string; descriptionEbay: string; descriptionPoshmark: string;
-  conditionDescription: string; keywords: string[]; priceNote: string;
-}>(l: T): T {
-  let title = stripOldMoney(l.title).trim();
-  if (title.length > 80) title = title.slice(0, 80).trim();
-  const descriptionEbay = stripOldMoney(l.descriptionEbay).slice(0, 1000);
-  const descriptionPoshmark = truncateWords(stripOldMoney(l.descriptionPoshmark), 1000);
-  const conditionDescription = stripOldMoney(l.conditionDescription).slice(0, 200);
-  const keywords = l.keywords.map((k) => stripOldMoney(k).trim()).filter((k) => k && !/^old[\s-]?money$/i.test(k));
-  const priceNote = stripOldMoney(l.priceNote);
-  return { ...l, title, descriptionEbay, descriptionPoshmark, conditionDescription, keywords, priceNote };
-}
 
 export const analyzeUploadedPhotos = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
@@ -266,9 +238,10 @@ export const analyzeUploadedPhotos = createServerFn({ method: "POST" })
                   "Return ONLY a JSON object with this exact shape: {\"photos\":[{\"index\":1,\"label\":\"Front\"}],\"brand\":\"\",\"size\":\"\",\"color\":\"\",\"condition\":\"\",\"itemType\":\"\"}.",
                   "For every photo, return its 1-based index and the best label from this exact list: Front, Back, Side, Detail, Tag/Label, Flaw, Styled / On Model, Measurements, Measure — Bust/Chest, Measure — Waist, Measure — Hips, Measure — Length, Measure — Sleeve, Measure — Inseam, Measure — Shoulders, Measure — Rise, Measure — Thigh, Other.",
                   "If you see ANY measuring tape in a photo — especially pink, yellow, white, or flexible tailor tape — label that photo Measurements unless the measurement type is obvious, then use the specific Measure label.",
-                  "Extract brand, size, color, condition, and itemType from the photos. ALWAYS attempt condition — do not leave it empty unless the photos are unreadable. Assess visually: new-with-tags = original tags attached and item looks pristine/unworn; new-without-tags = pristine/unworn but no tags; excellent = near-perfect with no visible wear, pills, fading, or stains; good = gently used, minor wear, light pilling, no major flaws; fair = visible wear, stains, holes, fading, or heavy use.",
+                  "Extract brand, size (preserve half sizes with decimal periods), color, condition, itemType. Return retailTagsAttached, visibleFlaw, unusedRetailPackaging booleans and prominentColorCount number and multicolorPattern boolean. Retail tags means attached original hangtags, NOT sewn-in labels. Default Excellent. Clothing with original hangtags => New with tags; non-clothing visibly unused in original unopened/retail packaging => New in box. Lower only for clear flaws.",
+                  `Color must be one of ${BASIC_COLORS.join(", ")}; map sage/olive to Green, navy to Blue, burgundy to Red, blush to Pink, etc. Multicolor only for 3+ prominent colors or multicolor pattern.` ,
                   "itemType MUST be EXACTLY one of: Clothing, Shoes, Bags, Purses, Jewelry, Accessories, Electronics, Home, Collectibles, Beauty, Toys, Books, Other.",
-                  "condition MUST be EXACTLY one of (case-sensitive, exact spelling): New with tags, New without tags, Excellent, Good, Fair. If a tag photo clearly shows NWT/NWOT/EUC, still map it to the closest allowed value. Default to 'Excellent' unless clear flaws justify a lower condition.",
+                  "condition MUST be EXACTLY one of (case-sensitive, exact spelling): New with tags, New in box, New without tags, Excellent, Good, Fair. If a tag photo clearly shows NWT/NWOT/EUC, still map it to the closest allowed value. Default to 'Excellent' unless clear flaws justify a lower condition.",
                 ].join("\n"),
               },
               ...data.photos.map((url) => ({ type: "image" as const, image: url })),
@@ -277,7 +250,7 @@ export const analyzeUploadedPhotos = createServerFn({ method: "POST" })
         ],
       });
       const detection = DetectionResultSchema.parse(parseJsonObject(result.text));
-      return { ok: true as const, ...detection };
+      return { ok: true as const, ...detection, color: normalizeColor(detection.color, detection.prominentColorCount, detection.multicolorPattern), condition: resolveCondition(detection.retailTagsAttached, detection.visibleFlaw, detection.condition, "", detection.unusedRetailPackaging, detection.itemType) };
     } catch (err) {
       console.error("analyzeUploadedPhotos failed", err);
       return { ok: false as const, error: aiErrorMessage(err), ...EMPTY_DETECTION };
@@ -329,7 +302,7 @@ const DetailsSchema = z.object({
   brand: z.string().optional().describe("Brand name read from tag, or empty if unknown"),
   size: z.string().optional().describe("Size read from tag, or empty if unknown"),
   color: z.string().optional().describe("Primary color in plain English, or empty if unknown"),
-  condition: z.string().optional().describe("One of: New with tags, New without tags, Excellent, Good, Fair. Empty if unsure."),
+  condition: z.string().optional().describe("One of: New with tags, New in box, New without tags, Excellent, Good, Fair. Empty if unsure."),
   itemType: z.string().optional().describe("One of: Clothing, Shoes, Bags, Accessories, Electronics, Home, Collectibles, Beauty, Toys, Books, Other. Empty if unsure."),
 });
 
