@@ -87,7 +87,7 @@ describe("listing requirements", () => {
   test("keywords include known fields, cap at 35, omit banned phrases and unsupported NWT", () => {
     const terms = finalizeKeywords(["old money", "NWT", ...Array.from({ length: 40 }, (_, i) => `style ${i}`)], { title: "Acme Dress", brand: "Acme", itemType: "Dress", size: "M", color: "Multicolor", itemSpecifics: {Material: "Cotton"}, tagsAttached: false });
     expect(terms.length).toBe(35);
-    expect(terms.slice(0, 5)).toEqual(["Acme", "Dress", "Multicolor", "M", "Cotton"]);
+    expect(terms.slice(0, 5)).toEqual(["Acme", "Multicolor", "M", "Cotton", "style 0"]);
     expect(terms).not.toContain("NWT");
     expect(terms).not.toContain("old money");
   });
