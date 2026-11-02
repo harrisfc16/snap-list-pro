@@ -96,7 +96,7 @@ export type DescriptionFacts = {
 
 export function factualText(text: string, skipStyleTags = false): string {
   return outputText(text, skipStyleTags).split(/\n|(?<=[.!?])\s+(?!\d)/)
-    .filter(line => !/\b(?:step into|elevate|stunning|introducing|sophisticated|industry[- ]standard|top[- ]tier|comparable|similar to|inspired by|like [A-Z][a-z]+|shipping|returns|unknown|not visible|placeholder|measurements?|inches|inch|centimeters?|cm|inseam)\b/i.test(line))
+    .filter(line => !/\b(?:step into|elevate|stunning|introducing|sophisticated|industry[- ]standard|top[- ]tier|comparable|similar to|inspired by|shipping|returns|unknown|not visible|placeholder|measurements?|inches|inch|centimeters?|cm|inseam)\b/i.test(line))
     .filter(line => !/\b\d+(?:\.\d+)?\s*["″]|\b(?:chest|bust|waist|hips?|length|sleeve|shoulders?|rise|thigh)\s*[:=]?\s*\d/i.test(line))
     .join(" ").replace(/#[\p{L}\p{N}_]+/gu, "").trim();
 }
@@ -119,11 +119,14 @@ export function formatSharedDescription(facts: DescriptionFacts): string {
   const summary = factualText(facts.summary, facts.skipStyleTags).split(/(?<=[.!?])\s+(?!\d)/).slice(0, 2).join(" ");
   const details = [facts.size ? `Size: ${outputText(facts.size)}` : "", facts.color ? `Color: ${normalizeColor(facts.color)}` : "", `Condition: ${outputText(facts.condition)}`].filter(Boolean).join("\n");
   const tags = descriptionHashtags(facts).join(" ");
-  const suffix = `\n${details}\n\n${tags}\n\n${facts.itemNumber}`;
-  const available = Math.max(0, 899 - title.length - 2 - suffix.length);
+  const suffix = `\n\n${tags}\n\n${facts.itemNumber}`;
   const style = factualText(facts.styleLine, facts.skipStyleTags);
-  let prose = [summary, style].filter(Boolean).join("\n");
-  if (prose.length > available) prose = prose.slice(0, available).replace(/\s+\S*$/, "").trim();
-  return `${title}\n\n${prose}${suffix}`;
+  const fixed = `${title}\n\n\n${details}${suffix}`;
+  let remaining = Math.max(0, 899 - fixed.length);
+  const shorten = (text: string, budget: number) => text.length <= budget ? text : text.slice(0, budget).replace(/\s+\S*$/, "").trim();
+  const prose = shorten(summary, remaining);
+  remaining -= prose.length;
+  const styleLine = style && remaining > 1 ? `\n${shorten(style, remaining - 1)}` : "";
+  return `${title}\n\n${prose}\n${details}${styleLine}${suffix}`;
 }
 

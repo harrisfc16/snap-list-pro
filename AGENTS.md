@@ -1,4 +1,5 @@
 # Architecture rules
 - Keep deterministic listing normalization, platform formatting, and keyword recovery in a client-safe listing-rules module with focused tests, so all copied output obeys the same limits.
 - Generate and freeze the item number with each server-produced listing rather than recomputing it from editable form fields, so descriptions and SKU copy remain consistent.
+- Keep one shared description and one shared list/floor price in the listing DTO; deterministic formatting reserves space for required detail lines, hashtags, and the frozen numbering output before shortening factual prose.
 - Preserve the existing AI models and provider; retry only a successful response with malformed keywords once, not provider failures, so keyword repair does not amplify denied or rate-limited requests.
