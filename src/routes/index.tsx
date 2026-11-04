@@ -3,7 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { DEFAULT_CONDITION, resolveCondition, BASIC_COLORS, normalizeColor } from "@/lib/listing-rules";
+import { DEFAULT_CONDITION, resolveCondition, BASIC_COLORS, normalizeColor, soldSearchTerm, soldSearchLinks } from "@/lib/listing-rules";
 
 import { analyzeUploadedPhotos, generateListing, type Listing } from "@/lib/listing.functions";
 
@@ -140,6 +140,10 @@ async function downscaleImage(file: File, maxDim = 1600, quality = 0.82): Promis
 function ListFast() {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [brand, setBrand] = useState("");
+  const [modelName, setModelName] = useState("");
+  const modelEdited = useRef(false);
+  const [soldTerm, setSoldTerm] = useState("");
+  const soldLinks = soldSearchLinks(soldTerm);
   const [size, setSize] = useState("");
   const [condition, setCondition] = useState<string>(DEFAULT_CONDITION);
   const conditionEdited = useRef(false);
@@ -151,7 +155,7 @@ function ListFast() {
   const [skuNumber, setSkuNumber] = useState<string>("1");
   const [color, setColor] = useState("");
   const [itemType, setItemType] = useState<string>("");
-  const [aiFields, setAiFields] = useState<{ brand?: boolean; size?: boolean; color?: boolean; condition?: boolean; itemType?: boolean }>({});
+  const [aiFields, setAiFields] = useState<{ brand?: boolean; modelName?: boolean; size?: boolean; color?: boolean; condition?: boolean; itemType?: boolean }>({});
   const [detecting, setDetecting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [progressIdx, setProgressIdx] = useState(0);
@@ -204,6 +208,7 @@ function ListFast() {
         );
         const flags: typeof aiFields = {};
         if (res.brand && !brand) { setBrand(res.brand); flags.brand = true; }
+        if (res.modelName && !modelEdited.current) { setModelName(res.modelName); flags.modelName = true; }
         if (res.size && !size) { setSize(res.size); flags.size = true; }
         if (res.color && !color) { setColor(normalizeColor(res.color)); flags.color = true; }
         if (!conditionEdited.current) {
@@ -218,7 +223,7 @@ function ListFast() {
       })
       .catch(() => {})
       .finally(() => setDetecting(false));
-  }, [photos, callAnalyzePhotos, brand, size, color, condition, itemType, aiFields]);
+  }, [photos, callAnalyzePhotos, brand, modelName, size, color, condition, itemType, aiFields, notes]);
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -243,6 +248,7 @@ function ListFast() {
         data: {
           photos: photos.map((p) => ({ dataUrl: p.dataUrl, label: p.label || undefined })),
           brand: brand || undefined,
+          modelName,
           size: SIZED_TYPES.has(itemType) || !itemType ? size || undefined : undefined,
           condition: condition || undefined,
           color: color || undefined,
@@ -258,6 +264,7 @@ function ListFast() {
         return;
       }
       setListing(result.listing as Listing);
+      setSoldTerm(soldSearchTerm(result.listing.brand, result.listing.modelName, result.listing.itemType));
       toast.success("Boom — ready to post! 🚀");
     } catch (err) {
       console.error(err);
@@ -419,6 +426,9 @@ function ListFast() {
                 className="input"
                 placeholder="e.g. Acne Studios"
               />
+            </Field>
+            <Field label="Model / product name" aiNote={aiFields.modelName}>
+              <input value={modelName} onChange={e => { modelEdited.current = true; setModelName(e.target.value); setAiFields(f => ({ ...f, modelName: false })); }} className="input" placeholder="e.g. Earned It Short" maxLength={160} />
             </Field>
             <Field label="Size" aiNote={aiFields.size}>
                 <input
@@ -601,6 +611,14 @@ function ListFast() {
               </div>
               <p className="text-sm text-muted-foreground font-light leading-relaxed">{listing.priceNote}</p>
             </ResultCard>
+            <ResultCard title="Check Sold Prices" accent="lavender">
+              <Field label="Search term"><input className="input" value={soldTerm} onChange={e => setSoldTerm(e.target.value)} /></Field>
+              <div className="flex flex-wrap gap-3 mt-4">
+                <Button asChild variant="outline"><a href={soldLinks.ebay} target="_blank" rel="noopener noreferrer">eBay sold</a></Button>
+                <Button asChild variant="outline"><a href={soldLinks.poshmark} target="_blank" rel="noopener noreferrer">Poshmark sold</a></Button>
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">Opens sold results in a new tab. You may need to be logged in.</p>
+            </ResultCard>
           </div>
         )}
 
@@ -664,7 +682,7 @@ function ResultCard({
   accent = "sage",
 }: {
   title: string;
-  onCopy: () => void;
+  onCopy?: () => void;
   children: React.ReactNode;
   accent?: "sage" | "peach" | "lavender";
 }) {
@@ -677,12 +695,12 @@ function ResultCard({
     >
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-serif text-xl font-light tracking-wide">{title}</h3>
-        <Button variant="ghost"
+        {onCopy && <Button variant="ghost"
           onClick={onCopy}
           className="text-xs uppercase tracking-[0.18em] text-muted-foreground hover:text-foreground transition font-light"
         >
           Copy
-        </Button>
+        </Button>}
       </div>
       {children}
     </section>

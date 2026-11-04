@@ -56,6 +56,54 @@ export function normalizeTitle(title: string, tagsAttached: boolean): string {
   return `${trimmed}${tagsAttached ? " NWT" : ""}`.trim();
 }
 
+export function buildSearchTitle(fields: { brand: string; modelName: string; itemType: string; department: string; size: string; color: string; features: string[]; title: string; tagsAttached: boolean; skipStyleTags?: boolean }): string {
+  const seen = new Set<string>();
+  const titleWords = (text: string) => normalizeTitle(outputText(text, fields.skipStyleTags), false).split(/\s+/).filter(Boolean);
+  const uniquePhrase = (text: string) => titleWords(text).filter(word => !seen.has(word.toLowerCase()));
+  let title = "";
+  const append = (phrase: string) => {
+    const words = uniquePhrase(phrase);
+    if (!words.length) return;
+    const next = [title, words.join(" ")].filter(Boolean).join(" ");
+    if (next.length > (fields.tagsAttached ? 76 : 80)) return;
+    title = next;
+    words.forEach(word => seen.add(word.toLowerCase()));
+  };
+  const department = /women/i.test(fields.department) ? "Womens" : /\bmen/i.test(fields.department) ? "Mens" : /kid|boy|girl|youth/i.test(fields.department) ? "Kids" : fields.department;
+  [fields.brand, fields.modelName, fields.itemType, department, fields.size ? `Size ${fields.size}` : "", fields.color].forEach(append);
+  // Keep factual feature phrases intact; skip a phrase that cannot fit and try the next.
+  fields.features.forEach(append);
+  if (title.length < 75) titleWords(fields.title).forEach(append);
+  return normalizeTitle(title || fields.title, fields.tagsAttached);
+}
+
+export function selectedCondition(value = ""): string {
+  return ["New with tags", "New in box", "New without tags", "Excellent", "Good", "Fair"].includes(value) ? value : DEFAULT_CONDITION;
+}
+
+export function formatConditionDescription(condition: string, text: string, skipStyleTags = false): string {
+  const details = factualText(text, skipStyleTags).split(/(?<=[.!?])\s+/)
+    .filter(line => !/\b(?:condition|excellent|good|fair|new|unused|unworn|NWT|NWOT|pre[- ]?owned|like new|mint|pristine|tags|packaging)\b/i.test(line)).join(" ");
+  return `${selectedCondition(condition)}${details ? `. ${details}` : ""}`.slice(0, 200);
+}
+
+export function formatSpecificValue(value: unknown): string {
+  return (Array.isArray(value) ? value.join(", ") : String(value)).split(/[,;|]\s*/).map(part => part.trim()).filter(Boolean).join(", ");
+}
+
+export function formatPriceNote(brand: string, condition: string, itemType: string): string {
+  return `${brand || "Unbranded"} ${itemType || "item"}, ${selectedCondition(condition)} condition, informs the suggested list and floor prices. AI estimate. Verify against sold prices below.`;
+}
+
+export function soldSearchTerm(brand: string, modelName: string, itemType: string): string {
+  return [brand.trim(), modelName.trim() || itemType.trim()].filter(Boolean).join(" ");
+}
+
+export function soldSearchLinks(term: string) {
+  const query = encodeURIComponent(term.trim());
+  return { ebay: `https://www.ebay.com/sch/i.html?_nkw=${query}&LH_Sold=1&LH_Complete=1`, poshmark: `https://poshmark.com/search?query=${query}&availability=sold_out&type=listings` };
+}
+
 export function validKeywords(value: unknown): value is string[] {
   return Array.isArray(value) && value.length > 0 && value.every((k) => typeof k === "string" && k.trim().length > 0);
 }
@@ -70,19 +118,30 @@ export async function withKeywordRecovery<T extends { keywords?: unknown }>(
   return { ...listing, keywords: keywordsFallback ? fallback(listing) : listing.keywords as string[], keywordsFallback };
 }
 
-export function finalizeKeywords(raw: string[], fields: { brand?: string; itemType?: string; color?: string; size?: string; title: string; itemSpecifics: Record<string, string>; tagsAttached: boolean; unwornWithoutTags?: boolean; skipStyleTags?: boolean; categoryCode?: string }, fallback = false): string[] {
-  const core = [fields.brand, fields.itemType, fields.color, fields.size,
-    ...Object.entries(fields.itemSpecifics).filter(([key]) => /brand|type|color|size|style|fit|material|fabric|pattern/i.test(key)).map(([, value]) => value),
+export function finalizeKeywords(raw: string[], fields: { brand?: string; modelName?: string; department?: string; material?: string; use?: string; itemType?: string; color?: string; size?: string; title: string; itemSpecifics: Record<string, string>; tagsAttached: boolean; unwornWithoutTags?: boolean; skipStyleTags?: boolean; categoryCode?: string }, fallback = false): string[] {
+  const department = /women/i.test(fields.department || "") ? "women's" : /\bmen/i.test(fields.department || "") ? "men's" : fields.department;
+  const core = [fields.brand, fields.modelName, fields.itemType, department, fields.color, fields.size ? `size ${fields.size}` : "",
+    ...Object.entries(fields.itemSpecifics).filter(([key]) => /brand|type|color|style|fit|material|fabric|pattern/i.test(key)).map(([, value]) => value),
     fields.tagsAttached ? "NWT" : ""];
-  const candidates = [...core, ...raw, ...(fallback ? [fields.title, ...fields.title.split(/\s+/)] : [])];
+  const candidates = [...core, ...raw, ...(fallback ? [fields.title] : [])];
   const unique = new Map<string, string>();
+  const evidence = `${fields.material || ""} ${fields.itemSpecifics.Material || ""} ${fields.itemSpecifics.Fabric || ""}`.toLowerCase();
+  const useEvidence = `${fields.itemType || ""} ${fields.use || ""} ${fields.itemSpecifics.Use || ""}`;
   for (const candidate of candidates) {
     if (!candidate || /\bold[\s-]?money\b/i.test(candidate)) continue;
     if (/\b(?:unknown|not visible|placeholder)\b/i.test(candidate)) continue;
     for (const term of outputText(candidate, fields.skipStyleTags).replace(/#/g, "").split(",")) {
       const k = term.trim();
-      if (!k || SKU_CATEGORIES.includes(k.toUpperCase() as typeof SKU_CATEGORIES[number]) || (!fields.tagsAttached && /\bNWT\b/i.test(k)) || (!fields.unwornWithoutTags && /\bNWOT\b/i.test(k))) continue;
-      if (!unique.has(k.toLowerCase())) unique.set(k.toLowerCase(), k);
+      if (!k || /^[\p{L}\p{N}]$/u.test(k) || /^\d+(?:\.\d+)?$/.test(k) || /^(?:XS|S|M|L|XL|XXL|XXXL|\d+(?:\.\d+)?\s*(?:US|UK|EU)?)$/i.test(k) || SKU_CATEGORIES.includes(k.toUpperCase() as typeof SKU_CATEGORIES[number]) || (!fields.tagsAttached && /\bNWT\b/i.test(k)) || (!fields.unwornWithoutTags && /\bNWOT\b/i.test(k))) continue;
+      if (/\bsize\b/i.test(k) && k.toLowerCase() !== `size ${fields.size || ""}`.toLowerCase()) continue;
+      const materials = k.toLowerCase().match(/\b(?:cotton|polyester|spandex|elastane|nylon|silk|wool|linen|leather|rayon|viscose|cashmere|acrylic)\b/g) || [];
+      if (materials.some(material => !new RegExp(`\\b${material}\\b`).test(evidence))) continue;
+      if (/gorpcore|hiking/i.test(k) && !/outdoor|technical|hiking/i.test(useEvidence)) continue;
+      if (/athleisure/i.test(k) && !/activewear|lounge|athletic|bike shorts|biker shorts|gym|workout/i.test(useEvidence)) continue;
+      if (/running/i.test(k) && !/running/i.test(useEvidence)) continue;
+      const key = k.toLowerCase().replace(/[’']/g, "").replace(/\s+blend\b/g, "").trim();
+      const previous = unique.get(key);
+      if (!previous || k.length < previous.length) unique.set(key, k);
     }
   }
   return [...unique.values()].slice(0, MAX_KEYWORDS);
@@ -122,12 +181,12 @@ export function formatSharedDescription(facts: DescriptionFacts): string {
   const tags = descriptionHashtags(facts).join(" ");
   const suffix = `\n\n${tags}\n\n${facts.itemNumber}`;
   const style = factualText(facts.styleLine, facts.skipStyleTags);
-  const fixed = `${title}\n\n\n${details}${suffix}`;
+  const fixed = `${title}\n\n\n\n${details}${suffix}`;
   let remaining = Math.max(0, 899 - fixed.length);
   const shorten = (text: string, budget: number) => text.length <= budget ? text : text.slice(0, budget).replace(/\s+\S*$/, "").trim();
   const prose = shorten(summary, remaining);
   remaining -= prose.length;
   const styleLine = style && remaining > 1 ? `\n${shorten(style, remaining - 1)}` : "";
-  return `${title}\n\n${prose}\n${details}${styleLine}${suffix}`;
+  return `${title}\n\n${prose}\n\n${details}${styleLine}${suffix}`;
 }
 

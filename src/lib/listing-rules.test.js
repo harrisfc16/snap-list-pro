@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildSku, DEFAULT_CONDITION, finalizeKeywords, formatSharedDescription, descriptionHashtags, itemNumberOutput, SKU_CATEGORIES, outputText, normalizeColor, normalizeTitle, resolveCondition, withKeywordRecovery } from "./listing-rules";
+import { buildSku, buildSearchTitle, selectedCondition, formatConditionDescription, formatSpecificValue, formatPriceNote, soldSearchTerm, soldSearchLinks, DEFAULT_CONDITION, finalizeKeywords, formatSharedDescription, descriptionHashtags, itemNumberOutput, SKU_CATEGORIES, outputText, normalizeColor, normalizeTitle, resolveCondition, withKeywordRecovery } from "./listing-rules";
 
 describe("listing requirements", () => {
   test("condition defaults to Excellent and tags are required for New with tags", () => {
@@ -78,7 +78,7 @@ describe("listing requirements", () => {
   });
   test("half sizes preserve decimal period in title and keywords", () => {
     expect(normalizeTitle("Acme Shoes Size 7.5 Sage!", false)).toBe("Acme Shoes Size 7.5 Green");
-    expect(finalizeKeywords(["7.5"], {...facts, itemSpecifics: {}, tagsAttached: false})).toContain("7.5");
+    expect(finalizeKeywords(["7.5"], {...facts, itemSpecifics: {}, tagsAttached: false})).toContain("size 7.5");
   });
   test("unused retail packaging gives non-clothing New in box only", () => {
     expect(resolveCondition(false, false, "", "", true, "Electronics")).toBe("New in box");
@@ -88,7 +88,7 @@ describe("listing requirements", () => {
   test("keywords include known fields, cap at 35, omit banned phrases and unsupported NWT", () => {
     const terms = finalizeKeywords(["old money", "NWT", ...Array.from({ length: 40 }, (_, i) => `style ${i}`)], { title: "Acme Dress", brand: "Acme", itemType: "Dress", size: "M", color: "Multicolor", itemSpecifics: {Material: "Cotton"}, tagsAttached: false });
     expect(terms.length).toBe(35);
-    expect(terms.slice(0, 5)).toEqual(["Acme", "Multicolor", "M", "Cotton", "style 0"]);
+    expect(terms.slice(0, 5)).toEqual(["Acme", "Multicolor", "size M", "Cotton", "style 0"]);
     expect(terms).not.toContain("NWT");
     expect(terms).not.toContain("old money");
   });
@@ -109,5 +109,51 @@ describe("listing requirements", () => {
     let calls = 0;
     await expect(withKeywordRecovery(async () => { calls++; throw new Error("403 denied"); }, () => [])).rejects.toThrow("403 denied");
     expect(calls).toBe(1);
+  });
+});
+
+describe("requested search and condition rules", () => {
+  test("ordered factual title fills 75-80 without repeating words", () => {
+    const title = buildSearchTitle({brand: "Athleta", modelName: "Earned It", itemType: "Biker Shorts", department: "Women's", size: "M", color: "Black", features: ["High Waist", "Side Pockets", "Recycled Polyester"], title: "Athleta Earned It Biker Shorts Womens Size M Black High Waist Side Pockets", tagsAttached: false});
+    expect(title.startsWith("Athleta Earned It Biker Shorts Womens Size M Black")).toBe(true);
+    expect(title.length).toBeGreaterThanOrEqual(75);
+    expect(title.length).toBeLessThanOrEqual(80);
+    const words = title.toLowerCase().split(" ");
+    expect(new Set(words).size).toBe(words.length);
+  });
+  test("short factual titles are not padded with invented terms", () => {
+    expect(buildSearchTitle({brand: "Acme", modelName: "", itemType: "Shoes", department: "", size: "7.5", color: "Blue", features: [], title: "Acme Shoes", tagsAttached: false})).toBe("Acme Shoes Size 7.5 Blue");
+  });
+  test("every selected condition overrides inferred grade", () => {
+    for (const condition of ["New with tags", "New in box", "New without tags", "Excellent", "Good", "Fair"]) {
+      expect(selectedCondition(condition)).toBe(condition);
+      expect(formatConditionDescription(condition, "Excellent used condition. New with tags. Small stain on front.")).toBe(`${condition}. Small stain on front.`);
+    }
+  });
+  test("specifics normalize lists with comma-space", () => {
+    expect(formatSpecificValue(["Side Pockets", "High Waistband", "Inner Thigh Gusset"])).toBe("Side Pockets, High Waistband, Inner Thigh Gusset");
+    expect(formatSpecificValue("Side Pockets;High Waistband|Inner Thigh Gusset")).toBe("Side Pockets, High Waistband, Inner Thigh Gusset");
+  });
+  test("keywords keep size once and remove near duplicates and unverified material", () => {
+    const keywords = finalizeKeywords(["M", "m", "size M", "size M black", "recycled polyester blend", "recycled polyester", "spandex", "bike shorts", "gym shorts", "gorpcore", "hiking", "running", "athleisure"], {brand: "Athleta", itemType: "Biker shorts", department: "Womens", color: "Black", size: "M", title: "Athleta shorts", itemSpecifics: {Material: "Recycled polyester"}, tagsAttached: false});
+    expect(keywords).toContain("size M");
+    expect(keywords).toContain("women's");
+    expect(keywords).toContain("bike shorts");
+    expect(keywords).toContain("athleisure");
+    expect(keywords.filter(k => /size/i.test(k))).toEqual(["size M"]);
+    expect(keywords.filter(k => /recycled polyester/i.test(k))).toEqual(["recycled polyester"]);
+    expect(keywords).not.toContain("M");
+    for (const term of ["spandex", "gorpcore", "hiking", "running"]) expect(keywords).not.toContain(term);
+    expect(keywords.length).toBeLessThan(35);
+  });
+  test("price note states specific factors and required ending", () => {
+    expect(formatPriceNote("Athleta", "Good", "Biker shorts")).toBe("Athleta Biker shorts, Good condition, informs the suggested list and floor prices. AI estimate. Verify against sold prices below.");
+  });
+  test("sold query prefers model then item type with no added size or color", () => {
+    expect(soldSearchTerm("Athleta", "Earned It Short", "Biker Shorts")).toBe("Athleta Earned It Short");
+    expect(soldSearchTerm("Athleta", "", "Biker Shorts")).toBe("Athleta Biker Shorts");
+  });
+  test("sold links encode editable query and request sold items", () => {
+    expect(soldSearchLinks("A & B Short")).toEqual({ebay: "https://www.ebay.com/sch/i.html?_nkw=A%20%26%20B%20Short&LH_Sold=1&LH_Complete=1", poshmark: "https://poshmark.com/search?query=A%20%26%20B%20Short&availability=sold_out&type=listings"});
   });
 });
