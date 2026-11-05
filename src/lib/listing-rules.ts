@@ -59,7 +59,15 @@ export function normalizeTitle(title: string, tagsAttached: boolean): string {
 export function buildSearchTitle(fields: { brand: string; modelName: string; itemType: string; department: string; size: string; color: string; features: string[]; title: string; tagsAttached: boolean; skipStyleTags?: boolean }): string {
   const seen = new Set<string>();
   const titleWords = (text: string) => normalizeTitle(outputText(text, fields.skipStyleTags), false).split(/\s+/).filter(Boolean);
-  const uniquePhrase = (text: string) => titleWords(text).filter(word => !seen.has(word.toLowerCase()));
+  const uniquePhrase = (text: string) => {
+    const phraseSeen = new Set(seen);
+    return titleWords(text).filter(word => {
+      const key = word.toLowerCase();
+      if (phraseSeen.has(key)) return false;
+      phraseSeen.add(key);
+      return true;
+    });
+  };
   let title = "";
   const append = (phrase: string) => {
     const words = uniquePhrase(phrase);
@@ -71,9 +79,22 @@ export function buildSearchTitle(fields: { brand: string; modelName: string; ite
   };
   const department = /women/i.test(fields.department) ? "Womens" : /\bmen/i.test(fields.department) ? "Mens" : /kid|boy|girl|youth/i.test(fields.department) ? "Kids" : fields.department;
   [fields.brand, fields.modelName, fields.itemType, department, fields.size ? `Size ${fields.size}` : "", fields.color].forEach(append);
-  // Keep factual feature phrases intact; skip a phrase that cannot fit and try the next.
-  fields.features.forEach(append);
-  if (title.length < 75) titleWords(fields.title).forEach(append);
+  // Select an ordered combination of intact factual features that best fills the budget.
+  const base = title;
+  const baseSeen = new Set(seen);
+  let best = title;
+  const features = fields.features.slice(0, 12);
+  for (let mask = 1; mask < 2 ** features.length; mask++) {
+    if (mask.toString(2).replace(/0/g, "").length > 3) continue;
+    title = base;
+    seen.clear();
+    baseSeen.forEach(word => seen.add(word));
+    features.forEach((feature, index) => { if (mask & (1 << index)) append(feature); });
+    if (title.length > best.length) best = title;
+  }
+  title = best;
+  seen.clear();
+  titleWords(title).forEach(word => seen.add(word.toLowerCase()));
   return normalizeTitle(title || fields.title, fields.tagsAttached);
 }
 
@@ -176,7 +197,8 @@ export function descriptionHashtags(facts: DescriptionFacts): string[] {
 
 export function formatSharedDescription(facts: DescriptionFacts): string {
   const title = facts.title;
-  const summary = factualText(facts.summary, facts.skipStyleTags).split(/(?<=[.!?])\s+(?!\d)/).slice(0, 2).join(" ");
+  const summary = factualText(facts.summary, facts.skipStyleTags).split(/(?<=[.!?])\s+(?!\d)/)
+    .filter(line => !/\b(?:condition|excellent|good|fair|new with tags|new without tags|new in box|NWT|NWOT|like new|pristine|mint)\b/i.test(line)).slice(0, 2).join(" ");
   const details = [facts.size ? `Size: ${outputText(facts.size)}` : "", facts.color ? `Color: ${normalizeColor(facts.color)}` : "", `Condition: ${outputText(facts.condition)}`].filter(Boolean).join("\n");
   const tags = descriptionHashtags(facts).join(" ");
   const suffix = `\n\n${tags}\n\n${facts.itemNumber}`;

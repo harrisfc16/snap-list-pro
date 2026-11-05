@@ -248,7 +248,7 @@ function ListFast() {
         data: {
           photos: photos.map((p) => ({ dataUrl: p.dataUrl, label: p.label || undefined })),
           brand: brand || undefined,
-          modelName,
+          modelName: modelName || (modelEdited.current ? "" : undefined),
           size: SIZED_TYPES.has(itemType) || !itemType ? size || undefined : undefined,
           condition: condition || undefined,
           color: color || undefined,
