@@ -1,7 +1,7 @@
 # Listing updates
-- [ ] Improve ordered titles, selected-condition consistency, keyword quality, specifics formatting and price explanations.
-- [ ] Add detected model/product field and editable sold-price links.
-- [ ] Verify rules and the photo-to-listing workflow.
+- [x] Improve ordered titles, selected-condition consistency, keyword quality, specifics formatting and price explanations.
+- [x] Add detected model/product field and editable sold-price links.
+- [x] Verify rules and the photo-to-listing workflow.
 - [x] Merge latest uploaded instructions into shared description, item-number/consignment/style toggles, colors, condition, category, half-size and price rules.
 - [x] Verify new rules with tests and photo-to-copy workflow.
 - [x] Add title-first Depop output and copy integration; preserve platform limits and SKU.
