@@ -95,7 +95,6 @@ export function buildSearchTitle(fields: { brand: string; modelName: string; ite
   title = best;
   seen.clear();
   titleWords(title).forEach(word => seen.add(word.toLowerCase()));
-  if (title.length < 75) titleWords(fields.title).forEach(append);
   return normalizeTitle(title || fields.title, fields.tagsAttached);
 }
 

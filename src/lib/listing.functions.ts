@@ -187,7 +187,7 @@ export const generateListing = createServerFn({ method: "POST" })
       let rawTitle = clean(parsed.title);
       if (suppliedSize && !/\bsize\b/i.test(rawTitle)) rawTitle = rawTitle.replace(suppliedSize, `Size ${suppliedSize}`);
       const modelName = clean(data.modelName ?? parsed.modelName);
-      const title = buildSearchTitle({ brand: data.brand || parsed.brand || parsed.itemSpecifics.Brand || "", modelName, itemType: parsed.itemType || parsed.itemSpecifics.Type || data.itemType || "", department: parsed.department || parsed.itemSpecifics.Department || "", size: suppliedSize, color: normalizeColor(data.color || parsed.color || parsed.itemSpecifics.Color || "", parsed.prominentColorCount, parsed.multicolorPattern), features: parsed.features, title: rawTitle, tagsAttached, skipStyleTags: data.skipStyleTags });
+      const title = buildSearchTitle({ brand: data.brand || parsed.brand || parsed.itemSpecifics.Brand || "", modelName, itemType: parsed.itemType || parsed.itemSpecifics.Type || data.itemType || "", department: parsed.department || parsed.itemSpecifics.Department || "", size: suppliedSize, color: normalizeColor(data.color || parsed.color || parsed.itemSpecifics.Color || "", parsed.prominentColorCount, parsed.multicolorPattern), features: [...parsed.features, parsed.material, parsed.fit, parsed.use], title: rawTitle, tagsAttached, skipStyleTags: data.skipStyleTags });
       const sku = buildSku(parsed.categoryCode, data.skuNumber ?? 1, data.listingDate);
       const itemNumber = itemNumberOutput(data.includeItemNumber, data.consignment, data.consignerName, sku);
       const itemSpecifics = Object.fromEntries(Object.entries(parsed.itemSpecifics)
@@ -198,7 +198,8 @@ export const generateListing = createServerFn({ method: "POST" })
       const ownBrand = data.brand || parsed.brand || itemSpecifics.Brand || itemSpecifics.brand || "";
       const size = data.size || parsed.size || itemSpecifics.Size || "";
       const specificType = parsed.itemType || itemSpecifics.Type || data.itemType || "";
-      if (itemSpecifics.Condition) itemSpecifics.Condition = condition;
+      for (const key of Object.keys(itemSpecifics)) if (/condition/i.test(key)) itemSpecifics[key] = condition;
+      if (modelName) itemSpecifics.Model = modelName;
       const keywords = finalizeKeywords(parsed.keywords, {
         brand: ownBrand, modelName, department: parsed.department || itemSpecifics.Department, material: parsed.material, use: parsed.use, itemType: specificType, color: detectedColor, size,
         title, itemSpecifics, tagsAttached, unwornWithoutTags: parsed.unwornWithoutTags && condition === "New without tags",
