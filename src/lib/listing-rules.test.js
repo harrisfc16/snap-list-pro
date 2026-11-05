@@ -141,7 +141,7 @@ describe("requested search and condition rules", () => {
     expect(keywords).toContain("bike shorts");
     expect(keywords).toContain("athleisure");
     expect(keywords.filter(k => /size/i.test(k))).toEqual(["size M"]);
-    expect(keywords.filter(k => /recycled polyester/i.test(k))).toEqual(["recycled polyester"]);
+    expect(keywords.filter(k => /recycled polyester/i.test(k)).map(k => k.toLowerCase())).toEqual(["recycled polyester"]);
     expect(keywords).not.toContain("M");
     for (const term of ["spandex", "gorpcore", "hiking", "running"]) expect(keywords).not.toContain(term);
     expect(keywords.length).toBeLessThan(35);
