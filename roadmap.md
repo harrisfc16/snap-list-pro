@@ -1,4 +1,5 @@
 # Listing updates
+- [x] Apply item 4: real-brand/model/material/item-type search terms, Poshmark listed link and new note; verify live links.
 - [x] Improve ordered titles, selected-condition consistency, keyword quality, specifics formatting and price explanations.
 - [x] Add detected model/product field and editable sold-price links.
 - [x] Verify rules and the photo-to-listing workflow.

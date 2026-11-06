@@ -264,7 +264,7 @@ function ListFast() {
         return;
       }
       setListing(result.listing as Listing);
-      setSoldTerm(soldSearchTerm(result.listing.brand, result.listing.modelName, result.listing.itemType));
+      setSoldTerm(soldSearchTerm(result.listing.brand, result.listing.modelName, result.listing.itemType, result.listing.itemSpecifics.Material || result.listing.itemSpecifics.material || result.listing.material, notes));
       toast.success("Boom — ready to post! 🚀");
     } catch (err) {
       console.error(err);
@@ -616,8 +616,9 @@ function ListFast() {
               <div className="flex flex-wrap gap-3 mt-4">
                 <Button asChild variant="outline"><a href={soldLinks.ebay} target="_blank" rel="noopener noreferrer">eBay sold</a></Button>
                 <Button asChild variant="outline"><a href={soldLinks.poshmark} target="_blank" rel="noopener noreferrer">Poshmark sold</a></Button>
+                <Button asChild variant="outline"><a href={soldLinks.poshmarkListed} target="_blank" rel="noopener noreferrer">Poshmark listed</a></Button>
               </div>
-              <p className="mt-3 text-xs text-muted-foreground">Opens sold results in a new tab. You may need to be logged in.</p>
+              <p className="mt-3 text-xs text-muted-foreground">Sold buttons show what items actually sold for. Listed shows current asking prices. You may need to be logged in.</p>
             </ResultCard>
           </div>
         )}

@@ -116,13 +116,24 @@ export function formatPriceNote(brand: string, condition: string, itemType: stri
   return `${brand || "Unbranded"} ${itemType || "item"}, ${selectedCondition(condition)} condition, informs the suggested list and floor prices. AI estimate. Verify against sold prices below.`;
 }
 
-export function soldSearchTerm(brand: string, modelName: string, itemType: string): string {
-  return [brand.trim(), modelName.trim() || itemType.trim()].filter(Boolean).join(" ");
+export function soldSearchTerm(brand: string, modelName: string, itemType: string, material = "", notes = ""): string {
+  const realBrand = /^(?:unknown|unbranded|no brand|n\/?a|none|generic|not visible)$/i.test(brand.trim()) ? "" : brand.trim();
+  const knownMaterial = material.trim() || notes.match(/\b(?:jade|jadeite|nephrite|stone|agate|quartz|onyx|turquoise|pearl|cotton|polyester|spandex|elastane|nylon|silk|wool|linen|leather|rayon|viscose|cashmere|acrylic|sterling silver|silver|gold|stainless steel|steel|brass|wood|ceramic|glass|plastic)\b/i)?.[0] || "";
+  const seen = new Set<string>();
+  return [realBrand, modelName, knownMaterial, itemType].map(value => {
+    if (/^(?:unknown|unbranded|n\/?a|none|not visible)$/i.test(value.trim())) return "";
+    return value.trim().split(/\s+/).filter(word => {
+      const key = word.toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).join(" ");
+  }).filter(Boolean).join(" ");
 }
 
 export function soldSearchLinks(term: string) {
   const query = encodeURIComponent(term.trim());
-  return { ebay: `https://www.ebay.com/sch/i.html?_nkw=${query}&LH_Sold=1&LH_Complete=1`, poshmark: `https://poshmark.com/search?query=${query}&availability=sold_out&type=listings` };
+  return { ebay: `https://www.ebay.com/sch/i.html?_nkw=${query}&LH_Sold=1&LH_Complete=1`, poshmark: `https://poshmark.com/search?query=${query}&availability=sold_out&type=listings`, poshmarkListed: `https://poshmark.com/search?query=${query}&availability=available&type=listings` };
 }
 
 export function validKeywords(value: unknown): value is string[] {

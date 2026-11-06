@@ -149,11 +149,20 @@ describe("requested search and condition rules", () => {
   test("price note states specific factors and required ending", () => {
     expect(formatPriceNote("Athleta", "Good", "Biker shorts")).toBe("Athleta Biker shorts, Good condition, informs the suggested list and floor prices. AI estimate. Verify against sold prices below.");
   });
-  test("sold query prefers model then item type with no added size or color", () => {
-    expect(soldSearchTerm("Athleta", "Earned It Short", "Biker Shorts")).toBe("Athleta Earned It Short");
+  test("sold query orders real brand, model, material and item type", () => {
+    expect(soldSearchTerm("Athleta", "Earned It Short", "Biker Shorts", "Polyester")).toBe("Athleta Earned It Short Polyester Biker Shorts");
     expect(soldSearchTerm("Athleta", "", "Biker Shorts")).toBe("Athleta Biker Shorts");
   });
+  test("sold query omits placeholder brands and uses jade from Notes", () => {
+    for (const brand of ["Unknown", "Unbranded", "no brand", "N/A", "None", "Generic", "Not Visible", ""]) {
+      expect(soldSearchTerm(brand, "", "bangle bracelet", "", "Green jade bangle, size OS")).toBe("jade bangle bracelet");
+    }
+  });
+  test("sold query prefers provided material over Notes and avoids repeated phrases", () => {
+    expect(soldSearchTerm("", "", "jade bangle bracelet", "jade", "cotton pouch included")).toBe("jade bangle bracelet");
+    expect(soldSearchTerm("", "", "bangle bracelet", "Jade", "cotton pouch included")).toBe("Jade bangle bracelet");
+  });
   test("sold links encode editable query and request sold items", () => {
-    expect(soldSearchLinks("A & B Short")).toEqual({ebay: "https://www.ebay.com/sch/i.html?_nkw=A%20%26%20B%20Short&LH_Sold=1&LH_Complete=1", poshmark: "https://poshmark.com/search?query=A%20%26%20B%20Short&availability=sold_out&type=listings"});
+    expect(soldSearchLinks("A & B Short")).toEqual({ebay: "https://www.ebay.com/sch/i.html?_nkw=A%20%26%20B%20Short&LH_Sold=1&LH_Complete=1", poshmark: "https://poshmark.com/search?query=A%20%26%20B%20Short&availability=sold_out&type=listings", poshmarkListed: "https://poshmark.com/search?query=A%20%26%20B%20Short&availability=available&type=listings"});
   });
 });
