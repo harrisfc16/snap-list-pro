@@ -148,6 +148,35 @@ describe("requested search and condition rules", () => {
   test("price note states specific factors and required ending", () => {
     expect(formatPriceNote("Athleta", "Good", "Biker shorts")).toBe("Athleta Biker shorts, Good condition, informs the suggested list and floor prices. AI estimate. Verify against sold prices below.");
   });
+  test("placeholder brands clean to empty and real brands survive", () => {
+    for (const brand of ["Unknown", "Unbranded", "no brand", "N/A", "None", "Generic", "Not Visible", "unknown.", ""]) {
+      expect(cleanBrand(brand)).toBe("");
+    }
+    expect(cleanBrand("Athleta")).toBe("Athleta");
+    expect(cleanBrand("Ulla Johnson")).toBe("Ulla Johnson");
+  });
+  test("no-brand title leads with material or item type and never a placeholder", () => {
+    const title = buildSearchTitle({brand: "", modelName: "", itemType: "Bangle Bracelet", department: "Women's", size: "OS", color: "Green", material: "Jade", features: ["Natural Stone", "Minimalist"], title: "Jade bangle bracelet", tagsAttached: false});
+    expect(title).toBe("Jade Bangle Bracelet Womens Size OS Green Natural Stone Minimalist");
+    expect(title).not.toMatch(/unknown|unbranded|n\/a/i);
+    expect(title.length).toBeLessThanOrEqual(80);
+  });
+  test("price note, hashtags and keywords drop a missing brand cleanly", () => {
+    for (const brand of ["", "Unknown", "Unbranded"]) {
+      expect(formatPriceNote(brand, "Excellent", "Bangle Bracelet")).toBe("Bangle Bracelet, Excellent condition, informs the suggested list and floor prices. AI estimate. Verify against sold prices below.");
+    }
+    const noBrand = {...facts, brand: "", itemType: "Bangle Bracelet", color: "Green", material: "Jade", fit: "", use: "", features: ["Minimalist"], keywords: []};
+    const tags = descriptionHashtags(noBrand);
+    expect(tags.length).toBe(5);
+    expect(tags).not.toContain("#unknown");
+    expect(tags).not.toContain("#unbranded");
+    const terms = finalizeKeywords(["jade", "unknown"], {...noBrand, itemSpecifics: {}, tagsAttached: false, size: "OS"});
+    expect(terms).not.toContain("unknown");
+    expect(terms).toContain("jade");
+    const text = formatSharedDescription({...noBrand, summary: "Jade bangle bracelet in green.", itemNumber: "20261107-ACC-001"});
+    expect(text).not.toMatch(/unknown|unbranded/i);
+    expect(text).toContain("Condition: Excellent");
+  });
   test("sold query orders real brand, model, material and item type", () => {
     expect(soldSearchTerm("Athleta", "Earned It Short", "Biker Shorts", "Polyester")).toBe("Athleta Earned It Short Polyester Biker Shorts");
     expect(soldSearchTerm("Athleta", "", "Biker Shorts")).toBe("Athleta Biker Shorts");
