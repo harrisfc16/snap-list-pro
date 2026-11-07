@@ -165,15 +165,15 @@ describe("requested search and condition rules", () => {
     for (const brand of ["", "Unknown", "Unbranded"]) {
       expect(formatPriceNote(brand, "Excellent", "Bangle Bracelet")).toBe("Bangle Bracelet, Excellent condition, informs the suggested list and floor prices. AI estimate. Verify against sold prices below.");
     }
-    const noBrand = {...facts, brand: "", itemType: "Bangle Bracelet", color: "Green", material: "Jade", fit: "", use: "", features: ["Minimalist"], keywords: []};
+    const noBrand = {title: "Jade Bangle Bracelet Womens Size OS Green", summary: "Jade bangle bracelet in green.", size: "OS", color: "Green", condition: "Excellent", styleLine: "", brand: "", itemType: "Bangle Bracelet", material: "Jade", fit: "", use: "", features: ["Minimalist"], keywords: [], itemNumber: "20261107-ACC-001", skipStyleTags: false, categoryCode: "ACC"};
     const tags = descriptionHashtags(noBrand);
     expect(tags.length).toBe(5);
     expect(tags).not.toContain("#unknown");
     expect(tags).not.toContain("#unbranded");
-    const terms = finalizeKeywords(["jade", "unknown"], {...noBrand, itemSpecifics: {}, tagsAttached: false, size: "OS"});
+    const terms = finalizeKeywords(["jade", "unknown"], {...noBrand, itemSpecifics: {}, tagsAttached: false});
     expect(terms).not.toContain("unknown");
     expect(terms).toContain("jade");
-    const text = formatSharedDescription({...noBrand, summary: "Jade bangle bracelet in green.", itemNumber: "20261107-ACC-001"});
+    const text = formatSharedDescription(noBrand);
     expect(text).not.toMatch(/unknown|unbranded/i);
     expect(text).toContain("Condition: Excellent");
   });
