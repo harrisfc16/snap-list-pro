@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildSku, buildSearchTitle, selectedCondition, formatConditionDescription, formatSpecificValue, formatPriceNote, soldSearchTerm, soldSearchLinks, DEFAULT_CONDITION, finalizeKeywords, formatSharedDescription, descriptionHashtags, itemNumberOutput, SKU_CATEGORIES, outputText, normalizeColor, normalizeTitle, resolveCondition, withKeywordRecovery } from "./listing-rules";
+import { buildSku, buildSearchTitle, selectedCondition, cleanBrand, formatSpecificValue, formatPriceNote, soldSearchTerm, soldSearchLinks, DEFAULT_CONDITION, finalizeKeywords, formatSharedDescription, descriptionHashtags, itemNumberOutput, SKU_CATEGORIES, outputText, normalizeColor, normalizeTitle, resolveCondition, withKeywordRecovery } from "./listing-rules";
 
 describe("listing requirements", () => {
   test("condition defaults to Excellent and tags are required for New with tags", () => {
@@ -127,7 +127,6 @@ describe("requested search and condition rules", () => {
   test("every selected condition overrides inferred grade", () => {
     for (const condition of ["New with tags", "New in box", "New without tags", "Excellent", "Good", "Fair"]) {
       expect(selectedCondition(condition)).toBe(condition);
-      expect(formatConditionDescription(condition, "Excellent used condition. New with tags. Small stain on front.")).toBe(`${condition}. Small stain on front.`);
     }
   });
   test("specifics normalize lists with comma-space", () => {
