@@ -190,7 +190,8 @@ export const generateListing = createServerFn({ method: "POST" })
       let rawTitle = clean(parsed.title);
       if (suppliedSize && !/\bsize\b/i.test(rawTitle)) rawTitle = rawTitle.replace(suppliedSize, `Size ${suppliedSize}`);
       const modelName = clean(data.modelName ?? parsed.modelName);
-      const title = buildSearchTitle({ brand: data.brand || parsed.brand || parsed.itemSpecifics.Brand || "", modelName, itemType: parsed.itemType || parsed.itemSpecifics.Type || data.itemType || "", department: parsed.department || parsed.itemSpecifics.Department || "", size: suppliedSize, color: normalizeColor(data.color || parsed.color || parsed.itemSpecifics.Color || "", parsed.prominentColorCount, parsed.multicolorPattern), features: [...parsed.features, parsed.material, parsed.fit, parsed.use], title: rawTitle, tagsAttached, skipStyleTags: data.skipStyleTags });
+      const ownBrand = cleanBrand(data.brand || parsed.brand || parsed.itemSpecifics.Brand || "");
+      const title = buildSearchTitle({ brand: ownBrand, material: clean(parsed.material || parsed.itemSpecifics.Material || ""), modelName, itemType: parsed.itemType || parsed.itemSpecifics.Type || data.itemType || "", department: parsed.department || parsed.itemSpecifics.Department || "", size: suppliedSize, color: normalizeColor(data.color || parsed.color || parsed.itemSpecifics.Color || "", parsed.prominentColorCount, parsed.multicolorPattern), features: [...parsed.features, parsed.material, parsed.fit, parsed.use], title: rawTitle, tagsAttached, skipStyleTags: data.skipStyleTags });
       const sku = buildSku(parsed.categoryCode, data.skuNumber ?? 1, data.listingDate);
       const itemNumber = itemNumberOutput(data.includeItemNumber, data.consignment, data.consignerName, sku);
       const itemSpecifics = Object.fromEntries(Object.entries(parsed.itemSpecifics)
@@ -198,7 +199,9 @@ export const generateListing = createServerFn({ method: "POST" })
         .map(([key, value]) => [clean(key), clean(value)]).filter(([key, value]) => key && value));
       const detectedColor = normalizeColor(data.color || parsed.color || itemSpecifics.Color || itemSpecifics.color || "", parsed.prominentColorCount, parsed.multicolorPattern);
       if (detectedColor) { delete itemSpecifics.color; itemSpecifics.Color = detectedColor; }
-      const ownBrand = data.brand || parsed.brand || itemSpecifics.Brand || itemSpecifics.brand || "";
+      // A missing brand leaves no Brand row and no placeholder value anywhere.
+      delete itemSpecifics.brand;
+      if (ownBrand) itemSpecifics.Brand = ownBrand; else delete itemSpecifics.Brand;
       const size = data.size || parsed.size || itemSpecifics.Size || "";
       const specificType = parsed.itemType || itemSpecifics.Type || data.itemType || "";
       for (const key of Object.keys(itemSpecifics)) if (/condition/i.test(key)) itemSpecifics[key] = condition;
@@ -217,8 +220,7 @@ export const generateListing = createServerFn({ method: "POST" })
       });
       const listing = {
         ...parsed, brand: ownBrand, itemType: specificType, modelName, title, sku, itemNumber, itemSpecifics, keywords, description,
-        conditionDescription: formatConditionDescription(condition, parsed.conditionDescription, data.skipStyleTags),
-        categoryEbay: clean(parsed.categoryEbay), categoryPoshmark: clean(parsed.categoryPoshmark), priceNote: formatPriceNote(clean(ownBrand), condition, clean(specificType)),
+        categoryEbay: clean(parsed.categoryEbay), categoryPoshmark: clean(parsed.categoryPoshmark), priceNote: formatPriceNote(ownBrand, condition, clean(specificType)),
       };
       return { ok: true as const, listing };
     } catch (err) {
@@ -238,7 +240,7 @@ export const analyzeUploadedPhotos = createServerFn({ method: "POST" })
     if (!key) throw new Error("Missing LOVABLE_API_KEY");
 
     const gateway = createLovableAiGatewayProvider(key);
-    const model = gateway("google/gemini-2.5-flash-lite");
+    const model = gateway("google/gemini-3-flash-preview");
 
     try {
       const result = await generateText({
@@ -252,6 +254,7 @@ export const analyzeUploadedPhotos = createServerFn({ method: "POST" })
                 type: "text",
                 text: [
                   "Analyze these resale photos in one pass.",
+                  "brand, modelName and size must be an empty string unless clearly legible on a tag or label. Never return Unknown, Unbranded, N/A, None or similar.",
                   "Return ONLY a JSON object with this exact shape: {\"photos\":[{\"index\":1,\"label\":\"Front\"}],\"brand\":\"\",\"modelName\":\"\",\"size\":\"\",\"color\":\"\",\"condition\":\"\",\"itemType\":\"\"}.",
                   "For every photo, return its 1-based index and the best label from this exact list: Front, Back, Side, Detail, Tag/Label, Flaw, Styled / On Model, Measurements, Measure — Bust/Chest, Measure — Waist, Measure — Hips, Measure — Length, Measure — Sleeve, Measure — Inseam, Measure — Shoulders, Measure — Rise, Measure — Thigh, Other.",
                   "If you see ANY measuring tape in a photo — especially pink, yellow, white, or flexible tailor tape — label that photo Measurements unless the measurement type is obvious, then use the specific Measure label.",
@@ -267,7 +270,7 @@ export const analyzeUploadedPhotos = createServerFn({ method: "POST" })
         ],
       });
       const detection = DetectionResultSchema.parse(parseJsonObject(result.text));
-      return { ok: true as const, ...detection, color: normalizeColor(detection.color, detection.prominentColorCount, detection.multicolorPattern), condition: resolveCondition(detection.retailTagsAttached, detection.visibleFlaw, detection.condition, "", detection.unusedRetailPackaging, detection.itemType) };
+      return { ok: true as const, ...detection, brand: cleanBrand(detection.brand), modelName: detection.modelName.trim(), size: detection.size.trim(), color: normalizeColor(detection.color, detection.prominentColorCount, detection.multicolorPattern), condition: resolveCondition(detection.retailTagsAttached, detection.visibleFlaw, detection.condition, "", detection.unusedRetailPackaging, detection.itemType) };
     } catch (err) {
       console.error("analyzeUploadedPhotos failed", err);
       return { ok: false as const, error: aiErrorMessage(err), ...EMPTY_DETECTION };
@@ -353,7 +356,7 @@ export const guessItemDetails = createServerFn({ method: "POST" })
           },
         ],
       });
-      return result.output;
+      return { ...result.output, brand: cleanBrand(result.output.brand || "") };
     } catch (err) {
       console.error("guessItemDetails failed", err);
       return {};
