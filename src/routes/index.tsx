@@ -300,9 +300,6 @@ function ListFast() {
       `DESCRIPTION:`,
       description,
       ``,
-      `CONDITION DESCRIPTION (${listing.conditionDescription.length}/200):`,
-      listing.conditionDescription,
-      ``,
       `KEYWORDS:`,
       listing.keywords.join(", "),
       ``,
@@ -547,17 +544,6 @@ function ListFast() {
             >
               <div className="whitespace-pre-wrap leading-relaxed text-sm font-light">{description}</div>
               <p className="text-xs mt-2 text-muted-foreground">{description.length} / 900 characters</p>
-            </ResultCard>
-
-            <ResultCard
-              title="Condition Description"
-              accent="peach"
-              onCopy={() => copy(listing.conditionDescription, "Condition description")}
-            >
-              <div className="whitespace-pre-wrap leading-relaxed text-sm font-light">{listing.conditionDescription}</div>
-              <p className={`text-xs mt-2 tracking-wide ${listing.conditionDescription.length > 200 ? "text-destructive" : "text-muted-foreground"}`}>
-                {listing.conditionDescription.length} / 200 characters
-              </p>
             </ResultCard>
 
             <ResultCard

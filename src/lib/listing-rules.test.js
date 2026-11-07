@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildSku, buildSearchTitle, selectedCondition, formatConditionDescription, formatSpecificValue, formatPriceNote, soldSearchTerm, soldSearchLinks, DEFAULT_CONDITION, finalizeKeywords, formatSharedDescription, descriptionHashtags, itemNumberOutput, SKU_CATEGORIES, outputText, normalizeColor, normalizeTitle, resolveCondition, withKeywordRecovery } from "./listing-rules";
+import { buildSku, buildSearchTitle, selectedCondition, cleanBrand, formatSpecificValue, formatPriceNote, soldSearchTerm, soldSearchLinks, DEFAULT_CONDITION, finalizeKeywords, formatSharedDescription, descriptionHashtags, itemNumberOutput, SKU_CATEGORIES, outputText, normalizeColor, normalizeTitle, resolveCondition, withKeywordRecovery } from "./listing-rules";
 
 describe("listing requirements", () => {
   test("condition defaults to Excellent and tags are required for New with tags", () => {
@@ -127,7 +127,6 @@ describe("requested search and condition rules", () => {
   test("every selected condition overrides inferred grade", () => {
     for (const condition of ["New with tags", "New in box", "New without tags", "Excellent", "Good", "Fair"]) {
       expect(selectedCondition(condition)).toBe(condition);
-      expect(formatConditionDescription(condition, "Excellent used condition. New with tags. Small stain on front.")).toBe(`${condition}. Small stain on front.`);
     }
   });
   test("specifics normalize lists with comma-space", () => {
@@ -148,6 +147,35 @@ describe("requested search and condition rules", () => {
   });
   test("price note states specific factors and required ending", () => {
     expect(formatPriceNote("Athleta", "Good", "Biker shorts")).toBe("Athleta Biker shorts, Good condition, informs the suggested list and floor prices. AI estimate. Verify against sold prices below.");
+  });
+  test("placeholder brands clean to empty and real brands survive", () => {
+    for (const brand of ["Unknown", "Unbranded", "no brand", "N/A", "None", "Generic", "Not Visible", "unknown.", ""]) {
+      expect(cleanBrand(brand)).toBe("");
+    }
+    expect(cleanBrand("Athleta")).toBe("Athleta");
+    expect(cleanBrand("Ulla Johnson")).toBe("Ulla Johnson");
+  });
+  test("no-brand title leads with material or item type and never a placeholder", () => {
+    const title = buildSearchTitle({brand: "", modelName: "", itemType: "Bangle Bracelet", department: "Women's", size: "OS", color: "Green", material: "Jade", features: ["Natural Stone", "Minimalist"], title: "Jade bangle bracelet", tagsAttached: false});
+    expect(title).toBe("Jade Bangle Bracelet Womens Size OS Green Natural Stone Minimalist");
+    expect(title).not.toMatch(/unknown|unbranded|n\/a/i);
+    expect(title.length).toBeLessThanOrEqual(80);
+  });
+  test("price note, hashtags and keywords drop a missing brand cleanly", () => {
+    for (const brand of ["", "Unknown", "Unbranded"]) {
+      expect(formatPriceNote(brand, "Excellent", "Bangle Bracelet")).toBe("Bangle Bracelet, Excellent condition, informs the suggested list and floor prices. AI estimate. Verify against sold prices below.");
+    }
+    const noBrand = {title: "Jade Bangle Bracelet Womens Size OS Green", summary: "Jade bangle bracelet in green.", size: "OS", color: "Green", condition: "Excellent", styleLine: "", brand: "", itemType: "Bangle Bracelet", material: "Jade", fit: "", use: "", features: ["Minimalist"], keywords: [], itemNumber: "20261107-ACC-001", skipStyleTags: false, categoryCode: "ACC"};
+    const tags = descriptionHashtags(noBrand);
+    expect(tags.length).toBe(5);
+    expect(tags).not.toContain("#unknown");
+    expect(tags).not.toContain("#unbranded");
+    const terms = finalizeKeywords(["jade", "unknown"], {...noBrand, itemSpecifics: {}, tagsAttached: false});
+    expect(terms).not.toContain("unknown");
+    expect(terms).toContain("jade");
+    const text = formatSharedDescription(noBrand);
+    expect(text).not.toMatch(/unknown|unbranded/i);
+    expect(text).toContain("Condition: Excellent");
   });
   test("sold query orders real brand, model, material and item type", () => {
     expect(soldSearchTerm("Athleta", "Earned It Short", "Biker Shorts", "Polyester")).toBe("Athleta Earned It Short Polyester Biker Shorts");

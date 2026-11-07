@@ -1,4 +1,9 @@
 # Listing updates
+- [x] Apply item 1: cleanBrand placeholder handling, no-brand titles/hashtags/keywords/price note, no Brand row.
+- [x] Apply item 2: remove Condition Description card, field, schema key and Copy All block.
+- [x] Apply item 3: facts-only summary/styleLine/features, claim restrictions, stronger photo model.
+- [x] Apply item 5: categoryCode description from SKU_CATEGORIES, keywords description "up to 35, quality over count".
+- [x] Verify items 1-3 and 5 with tests and a real no-brand photo-to-listing run.
 - [x] Apply item 4: real-brand/model/material/item-type search terms, Poshmark listed link and new note; verify live links.
 - [x] Improve ordered titles, selected-condition consistency, keyword quality, specifics formatting and price explanations.
 - [x] Add detected model/product field and editable sold-price links.
