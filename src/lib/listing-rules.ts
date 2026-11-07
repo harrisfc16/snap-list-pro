@@ -109,18 +109,13 @@ export function selectedCondition(value = ""): string {
   return ["New with tags", "New in box", "New without tags", "Excellent", "Good", "Fair"].includes(value) ? value : DEFAULT_CONDITION;
 }
 
-export function formatConditionDescription(condition: string, text: string, skipStyleTags = false): string {
-  const details = factualText(text, skipStyleTags).split(/(?<=[.!?])\s+/)
-    .filter(line => !/\b(?:condition|excellent|good|fair|new|unused|unworn|NWT|NWOT|pre[- ]?owned|like new|mint|pristine|tags|packaging)\b/i.test(line)).join(" ");
-  return `${selectedCondition(condition)}${details ? `. ${details}` : ""}`.slice(0, 200);
-}
-
 export function formatSpecificValue(value: unknown): string {
   return (Array.isArray(value) ? value.join(", ") : String(value)).split(/[,;|]\s*/).map(part => part.trim()).filter(Boolean).join(", ");
 }
 
 export function formatPriceNote(brand: string, condition: string, itemType: string): string {
-  return `${brand || "Unbranded"} ${itemType || "item"}, ${selectedCondition(condition)} condition, informs the suggested list and floor prices. AI estimate. Verify against sold prices below.`;
+  const subject = [cleanBrand(brand), itemType || "item"].filter(Boolean).join(" ");
+  return `${subject}, ${selectedCondition(condition)} condition, informs the suggested list and floor prices. AI estimate. Verify against sold prices below.`;
 }
 
 export function soldSearchTerm(brand: string, modelName: string, itemType: string, material = "", notes = ""): string {
