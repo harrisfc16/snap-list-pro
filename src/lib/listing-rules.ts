@@ -19,6 +19,11 @@ export function itemNumberOutput(includeItemNumber: boolean, consignment: boolea
   return consignment ? `No Item # (${name})` : includeItemNumber ? sku : "No Item #";
 }
 
+export function cleanBrand(text: string): string {
+  const value = (text || "").trim().replace(/[._]+$/, "");
+  return /^(?:unknown|unbranded|no brand|no-brand|n\/?a|none|generic|not visible|placeholder)$/i.test(value) ? "" : value;
+}
+
 export function cleanText(text: string): string {
   return text.replace(/\bold[\s-]?money\b/gi, "").replace(/[ \t]{2,}/g, " ").trim();
 }
@@ -56,7 +61,7 @@ export function normalizeTitle(title: string, tagsAttached: boolean): string {
   return `${trimmed}${tagsAttached ? " NWT" : ""}`.trim();
 }
 
-export function buildSearchTitle(fields: { brand: string; modelName: string; itemType: string; department: string; size: string; color: string; features: string[]; title: string; tagsAttached: boolean; skipStyleTags?: boolean }): string {
+export function buildSearchTitle(fields: { brand: string; modelName: string; itemType: string; department: string; size: string; color: string; features: string[]; title: string; tagsAttached: boolean; skipStyleTags?: boolean; material?: string }): string {
   const seen = new Set<string>();
   const titleWords = (text: string) => normalizeTitle(outputText(text, fields.skipStyleTags), false).split(/\s+/).filter(Boolean);
   const uniquePhrase = (text: string) => {
@@ -78,7 +83,9 @@ export function buildSearchTitle(fields: { brand: string; modelName: string; ite
     words.forEach(word => seen.add(word.toLowerCase()));
   };
   const department = /women/i.test(fields.department) ? "Womens" : /\bmen/i.test(fields.department) ? "Mens" : /kid|boy|girl|youth/i.test(fields.department) ? "Kids" : fields.department;
-  [fields.brand, fields.modelName, fields.itemType, department, fields.size ? `Size ${fields.size}` : "", fields.color].forEach(append);
+  // No-brand items lead with the material or item type instead of a placeholder brand.
+  const lead = cleanBrand(fields.brand) ? [fields.brand, fields.modelName] : [fields.modelName, fields.material || ""];
+  [...lead, fields.itemType, department, fields.size ? `Size ${fields.size}` : "", fields.color].forEach(append);
   // Select an ordered combination of intact factual features that best fills the budget.
   const base = title;
   const baseSeen = new Set(seen);
@@ -117,11 +124,11 @@ export function formatPriceNote(brand: string, condition: string, itemType: stri
 }
 
 export function soldSearchTerm(brand: string, modelName: string, itemType: string, material = "", notes = ""): string {
-  const realBrand = /^(?:unknown|unbranded|no brand|n\/?a|none|generic|not visible)$/i.test(brand.trim()) ? "" : brand.trim();
+  const realBrand = cleanBrand(brand);
   const knownMaterial = material.trim() || notes.match(/\b(?:jade|jadeite|nephrite|stone|agate|quartz|onyx|turquoise|pearl|cotton|polyester|spandex|elastane|nylon|silk|wool|linen|leather|rayon|viscose|cashmere|acrylic|sterling silver|silver|gold|stainless steel|steel|brass|wood|ceramic|glass|plastic)\b/i)?.[0] || "";
   const seen = new Set<string>();
   return [realBrand, modelName, knownMaterial, itemType].map(value => {
-    if (/^(?:unknown|unbranded|n\/?a|none|not visible)$/i.test(value.trim())) return "";
+    if (!cleanBrand(value.trim())) return "";
     return value.trim().split(/\s+/).filter(word => {
       const key = word.toLowerCase();
       if (!key || seen.has(key)) return false;
@@ -200,7 +207,7 @@ export function descriptionHashtags(facts: DescriptionFacts): string[] {
   const candidates = terms.filter(term => term && term !== facts.size && !/\d|\b(?:size|unknown|not visible|placeholder|new with tags|excellent|good|fair)\b/i.test(term))
     .map(hashtag).filter(term => term && !SKU_CATEGORIES.some(code => code.toLowerCase() === term) && !core.includes(term));
   // Use item-derived phrases if the model supplies fewer than two descriptors; never invent a style or brand.
-  const fallbacks = [facts.color + facts.itemType, facts.brand + facts.itemType, facts.material + facts.itemType, facts.use + facts.itemType].map(hashtag);
+  const fallbacks = [facts.color + facts.itemType, cleanBrand(facts.brand) ? facts.brand + facts.itemType : "", facts.material + facts.itemType, facts.use + facts.itemType].map(hashtag);
   const unique = [...new Set([...core, ...candidates, ...fallbacks])]
     .filter(term => term && !SKU_CATEGORIES.some(code => code.toLowerCase() === term));
   return unique.slice(0, 5).map(term => `#${term}`);
